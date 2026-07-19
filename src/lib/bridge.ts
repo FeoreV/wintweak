@@ -11,6 +11,8 @@ import type {
   AppOperationStatus,
   AppPackageManager,
   AppProviderStatus,
+  ApplyOperationHandle,
+  ApplyOperationStatus,
   BatchPlan,
   ChocolateyBootstrapRequest,
   RecoverySessionSummary,
@@ -120,6 +122,19 @@ const mockApps: AppDefinition[] = Object.entries(
   foss: app.foss,
 }));
 const previewOperations = new Map<string, AppOperationStatus>();
+type PreviewApplyTask = {
+  status: ApplyOperationStatus;
+  config: TweakBatchConfig;
+  tweakIndex: number;
+  nextChangeIndex: number;
+  tweakStarted: boolean;
+  committedChangeCount: number;
+  appliedTweaks: string[];
+  sessionId?: string;
+  cancelRequested: boolean;
+  totalChanges: number;
+};
+const previewApplyOperations = new Map<string, PreviewApplyTask>();
 
 export function isTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
@@ -237,8 +252,44 @@ export function mockCall(command: string, args?: Record<string, unknown>): unkno
   }
   if (command === "apply_batch") {
     const config = args?.config as TweakBatchConfig;
+    const plan = mockCall("plan_batch", { config }) as BatchPlan;
     for (const item of config.tweaks) mockStates.set(item.id, "applied");
-    return { session_id: crypto.randomUUID(), applied_tweaks: config.tweaks.map(({ id }) => id) };
+    return {
+      session_id: plan.change_count > 0 ? crypto.randomUUID() : undefined,
+      applied_tweaks: config.tweaks.map(({ id }) => id),
+      committed_change_count: plan.change_count,
+    } satisfies ApplyBatchReport;
+  }
+  if (command === "start_apply_batch") {
+    const config = structuredClone(args?.config as TweakBatchConfig);
+    const plan = mockCall("plan_batch", { config }) as BatchPlan;
+    const task_id = crypto.randomUUID();
+    previewApplyOperations.set(task_id, {
+      status: { task_id, phase: "queued", events: [] },
+      config,
+      tweakIndex: 0,
+      nextChangeIndex: 0,
+      tweakStarted: false,
+      committedChangeCount: 0,
+      appliedTweaks: [],
+      cancelRequested: false,
+      totalChanges: plan.change_count,
+    });
+    return { task_id } satisfies ApplyOperationHandle;
+  }
+  if (command === "get_apply_operation") {
+    const task = previewApplyOperations.get(String(args?.taskId));
+    if (!task) throw new Error("Unknown registry apply task");
+    advancePreviewApply(task);
+    return structuredClone(task.status);
+  }
+  if (command === "cancel_apply_operation") {
+    const task = previewApplyOperations.get(String(args?.taskId));
+    if (!task) throw new Error("Unknown registry apply task");
+    if (!["completed", "cancelled", "failed"].includes(task.status.phase)) {
+      task.cancelRequested = true;
+    }
+    return;
   }
   if (command === "restore_session") {
     for (const item of catalog) mockStates.set(item.id, "not_applied");
@@ -259,6 +310,12 @@ export const bridge = {
   advisor: (request: AdvisorRequest) => call<AdvisorReport>("get_advisor_report", { request }),
   plan: (config: TweakBatchConfig) => call<BatchPlan>("plan_batch", { config }),
   apply: (config: TweakBatchConfig) => call<ApplyBatchReport>("apply_batch", { config }),
+  startApply: (config: TweakBatchConfig) =>
+    call<ApplyOperationHandle>("start_apply_batch", { config }),
+  applyOperation: (taskId: string) =>
+    call<ApplyOperationStatus>("get_apply_operation", { taskId }),
+  cancelApplyOperation: (taskId: string) =>
+    call<void>("cancel_apply_operation", { taskId }),
   recoveries: () => call<RecoverySessionSummary[]>("list_recovery_sessions"),
   restore: (sessionId: string) => call<RestoreSessionReport>("restore_session", { sessionId }),
   listApps: () => call<AppDefinition[]>("list_apps"),
@@ -272,3 +329,103 @@ export const bridge = {
   appOperation: (taskId: string) => call<AppOperationStatus>("get_app_operation", { taskId }),
   cancelAppOperation: (taskId: string) => call<void>("cancel_app_operation", { taskId }),
 };
+
+function advancePreviewApply(task: PreviewApplyTask): void {
+  if (["completed", "cancelled", "failed"].includes(task.status.phase)) return;
+  if (task.status.phase === "queued") {
+    task.status.phase = "running";
+    task.status.events.push({
+      kind: "batch_started",
+      total_tweaks: task.config.tweaks.length,
+      total_changes: task.totalChanges,
+    });
+    return;
+  }
+  const request = task.config.tweaks[task.tweakIndex];
+  if (!request) {
+    finishPreviewApply(task, "completed");
+    return;
+  }
+  const definition = catalog.find((item) => item.id === request.id);
+  if (!definition) {
+    task.status.phase = "failed";
+    task.status.error = `Unknown tweak: ${request.id}`;
+    task.status.events.push({
+      kind: "failed",
+      message: task.status.error,
+      completed_tweak_count: task.appliedTweaks.length,
+      committed_change_count: task.committedChangeCount,
+      session_id: task.sessionId,
+    });
+    task.status.report = previewApplyReport(task);
+    return;
+  }
+  if (
+    task.cancelRequested &&
+    (!task.tweakStarted || task.nextChangeIndex < definition.actions.length)
+  ) {
+    finishPreviewApply(task, "cancelled");
+    return;
+  }
+  if (!task.tweakStarted) {
+    task.status.events.push({
+      kind: "tweak_started",
+      tweak_id: request.id,
+      tweak_index: task.tweakIndex,
+    });
+    task.tweakStarted = true;
+    return;
+  }
+  while (task.nextChangeIndex < definition.actions.length) {
+    const changeIndex = task.nextChangeIndex++;
+    if (mockStates.get(request.id) === "applied") continue;
+    mockStates.set(request.id, "applied");
+    task.sessionId ??= crypto.randomUUID();
+    task.committedChangeCount += 1;
+    task.status.events.push({
+      kind: "change_committed",
+      tweak_id: request.id,
+      tweak_index: task.tweakIndex,
+      change_index: changeIndex,
+      committed_change_count: task.committedChangeCount,
+    });
+    return;
+  }
+  task.appliedTweaks.push(request.id);
+  task.status.events.push({
+    kind: "tweak_completed",
+    tweak_id: request.id,
+    tweak_index: task.tweakIndex,
+    completed_tweak_count: task.appliedTweaks.length,
+  });
+  task.tweakIndex += 1;
+  task.nextChangeIndex = 0;
+  task.tweakStarted = false;
+  if (task.config.tweaks[task.tweakIndex]) {
+    if (task.cancelRequested) finishPreviewApply(task, "cancelled");
+  } else {
+    finishPreviewApply(task, "completed");
+  }
+}
+
+function finishPreviewApply(
+  task: PreviewApplyTask,
+  phase: "completed" | "cancelled",
+): void {
+  task.status.phase = phase;
+  task.status.report = previewApplyReport(task);
+  task.status.events.push({
+    kind: phase === "completed" ? "batch_completed" : "cancelled",
+    completed_tweak_count: task.appliedTweaks.length,
+    committed_change_count: task.committedChangeCount,
+    session_id: task.sessionId,
+  });
+}
+
+function previewApplyReport(task: PreviewApplyTask): ApplyBatchReport {
+  return {
+    session_id: task.sessionId,
+    applied_tweaks: [...task.appliedTweaks],
+    committed_change_count: task.committedChangeCount,
+  };
+}

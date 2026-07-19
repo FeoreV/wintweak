@@ -76,7 +76,21 @@
     "success": "Changes applied safely",
     "undo": "Undo this session",
     "undone": "The session was restored",
-    "error": "The operation could not be completed"
+    "error": "The operation could not be completed",
+    "progressTitle": "Applying reviewed changes",
+    "committed": "{{committed}} of {{total}} registry changes committed",
+    "cancelApply": "Cancel apply",
+    "cancelling": "Cancelling…",
+    "cancelled": "Apply cancelled safely",
+    "failed": "Apply stopped after an error",
+    "partial": "{{count}} registry changes were committed and remain recoverable.",
+    "recoverySession": "Recovery session",
+    "close": "Close",
+    "events": {
+      "tweakStarted": "Starting {{tweak}}",
+      "changeCommitted": "Committed change {{change}} for {{tweak}}",
+      "tweakCompleted": "Completed {{tweak}}"
+    }
   },
   "action": {
     "title": "Keep the final decision yours.",

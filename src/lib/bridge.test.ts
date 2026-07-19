@@ -4,6 +4,7 @@ import type {
   AppDefinition,
   AppInstallReport,
   ApplyBatchReport,
+  ApplyOperationStatus,
   BatchPlan,
 } from "../types/backend.generated";
 import { mockCall } from "./bridge";
@@ -73,5 +74,42 @@ describe("development bridge", () => {
       report?: AppInstallReport;
     };
     expect(report.report?.results[0]).toMatchObject({ name: "7-Zip", success: true });
+  });
+
+  it("stages registry apply progress and confirms cancellation at a safe boundary", () => {
+    const config = {
+      schema_version: 1,
+      tweaks: [{ id: "disable_advertising_id" }, { id: "enable_long_paths" }],
+    };
+    const handle = mockCall("start_apply_batch", { config }) as { task_id: string };
+
+    const started = mockCall("get_apply_operation", {
+      taskId: handle.task_id,
+    }) as ApplyOperationStatus;
+    expect(started).toMatchObject({ phase: "running" });
+    expect(started.events).toEqual([
+      expect.objectContaining({ kind: "batch_started", total_tweaks: 2, total_changes: 2 }),
+    ]);
+
+    mockCall("get_apply_operation", { taskId: handle.task_id });
+    const committed = mockCall("get_apply_operation", {
+      taskId: handle.task_id,
+    }) as ApplyOperationStatus;
+    expect(committed.events.at(-1)).toMatchObject({
+      kind: "change_committed",
+      tweak_id: "disable_advertising_id",
+      committed_change_count: 1,
+    });
+
+    mockCall("cancel_apply_operation", { taskId: handle.task_id });
+    const cancelled = mockCall("get_apply_operation", {
+      taskId: handle.task_id,
+    }) as ApplyOperationStatus;
+    expect(cancelled).toMatchObject({
+      phase: "cancelled",
+      report: { committed_change_count: 1 },
+    });
+    expect(cancelled.report?.session_id).toBeTruthy();
+    expect(cancelled.events.at(-1)?.kind).toBe("cancelled");
   });
 });

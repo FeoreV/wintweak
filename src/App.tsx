@@ -8,6 +8,7 @@ import { readStorageValue, toggleId, writeStorageValue } from "./lib/storage";
 import type {
   AppInstallReport,
   AppPackageManager,
+  ApplyOperationStatus,
   TweakBatchConfig,
   UserGoal,
 } from "./types/backend.generated";
@@ -39,6 +40,9 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [reviewOpen, setReviewOpen] = useState(false);
   const [lastReport, setLastReport] = useState<Awaited<ReturnType<typeof bridge.apply>>>();
+  const [applyOperation, setApplyOperation] = useState<ApplyOperationStatus>();
+  const [applyTaskId, setApplyTaskId] = useState<string>();
+  const [applyCancelling, setApplyCancelling] = useState(false);
   const [restored, setRestored] = useState(false);
   const [selectedApps, setSelectedApps] = useState<Set<string>>(new Set());
   const [appManager, setAppManager] = useState<AppPackageManager>(() =>
@@ -65,6 +69,19 @@ export default function App() {
         if (status.phase !== "completed")
           throw new Error(status.events.at(-1)?.message ?? "Application operation failed");
         return;
+      }
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
+    }
+  }, []);
+
+  const waitForApplyOperation = useCallback(async (taskId: string) => {
+    for (;;) {
+      const status = await bridge.applyOperation(taskId);
+      setApplyOperation(status);
+      if (["completed", "cancelled", "failed"].includes(status.phase)) {
+        setApplyCancelling(false);
+        if (!status.report) throw new Error(status.error ?? "Registry apply operation failed");
+        return status;
       }
       await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
     }
@@ -141,15 +158,27 @@ export default function App() {
     enabled: reviewOpen && selectedIds.size > 0 && !lastReport,
   });
   const apply = useMutation({
-    mutationFn: () => bridge.apply(config),
-    onSuccess: async (report) => {
-      setLastReport(report);
+    mutationFn: async () => {
+      const handle = await bridge.startApply(config);
+      setApplyTaskId(handle.task_id);
+      return waitForApplyOperation(handle.task_id);
+    },
+    onSuccess: async (operation) => {
+      setLastReport(operation.report);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.statuses }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.advisor }),
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.recoveries }),
       ]);
     },
+    onSettled: () => setApplyTaskId(undefined),
+  });
+  const cancelApply = useMutation({
+    mutationFn: async () => {
+      if (!applyTaskId) return;
+      await bridge.cancelApplyOperation(applyTaskId);
+    },
+    onError: () => setApplyCancelling(false),
   });
   const restore = useMutation({
     mutationFn: bridge.restore,
@@ -171,6 +200,10 @@ export default function App() {
 
   const openReview = () => {
     setLastReport(undefined);
+    setApplyOperation(undefined);
+    setApplyTaskId(undefined);
+    setApplyCancelling(false);
+    cancelApply.reset();
     setRestored(false);
     setReviewOpen(true);
   };
@@ -230,13 +263,21 @@ export default function App() {
         open={reviewOpen}
         plan={plan.data}
         loading={plan.isLoading}
-        error={plan.isError || apply.isError || restore.isError}
+        error={plan.isError || apply.isError || cancelApply.isError || restore.isError}
         applying={apply.isPending}
+        cancelAvailable={Boolean(applyTaskId)}
+        cancelling={applyCancelling}
         restoring={restore.isPending}
         report={lastReport}
+        operation={applyOperation}
         restored={restored}
         onOpenChange={setReviewOpen}
         onApply={() => apply.mutate()}
+        onCancelApply={() => {
+          if (!applyTaskId || applyCancelling) return;
+          setApplyCancelling(true);
+          cancelApply.mutate();
+        }}
         onRestore={(sessionId) => restore.mutate(sessionId)}
       />
     </FluentProvider>

@@ -119,6 +119,7 @@ impl RecoveryStore {
         self.document.session_id
     }
 
+    #[cfg(test)]
     pub(crate) fn directory(&self) -> &Path {
         self.path
             .parent()

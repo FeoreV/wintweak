@@ -200,6 +200,73 @@ pub enum RegistryValue {
 pub struct ApplyBatchReport {
     pub session_id: Option<String>,
     pub applied_tweaks: Vec<String>,
+    pub committed_change_count: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct ApplyOperationHandle {
+    pub task_id: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplyOperationPhase {
+    Queued,
+    Running,
+    Completed,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ApplyOperationEvent {
+    BatchStarted {
+        total_tweaks: u32,
+        total_changes: u32,
+    },
+    TweakStarted {
+        tweak_id: String,
+        tweak_index: u32,
+    },
+    ChangeCommitted {
+        tweak_id: String,
+        tweak_index: u32,
+        change_index: u32,
+        committed_change_count: u32,
+    },
+    TweakCompleted {
+        tweak_id: String,
+        tweak_index: u32,
+        completed_tweak_count: u32,
+    },
+    BatchCompleted {
+        completed_tweak_count: u32,
+        committed_change_count: u32,
+        session_id: Option<String>,
+    },
+    Cancelled {
+        completed_tweak_count: u32,
+        committed_change_count: u32,
+        session_id: Option<String>,
+    },
+    Failed {
+        message: String,
+        completed_tweak_count: u32,
+        committed_change_count: u32,
+        session_id: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct ApplyOperationStatus {
+    pub task_id: String,
+    pub phase: ApplyOperationPhase,
+    pub events: Vec<ApplyOperationEvent>,
+    pub report: Option<ApplyBatchReport>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]

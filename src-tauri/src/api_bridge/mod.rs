@@ -1,13 +1,13 @@
 //! Thin typed IPC adapters. Business logic remains in `core`.
 
 use crate::{
-    core::{advisor, apps, registry::WindowsTweakEngine, registry_data, validator},
+    core::{advisor, apps, registry, registry::WindowsTweakEngine, registry_data, validator},
     errors::AppError,
     types::{
         AdvisorReport, AdvisorRequest, AppDefinition, AppInstallRequest, AppOperationHandle,
-        AppOperationStatus, AppProviderStatus, ApplyBatchReport, BatchPlan,
-        ChocolateyBootstrapRequest, RecoverySessionSummary, RestoreSessionReport, TweakBatchConfig,
-        TweakDefinition, TweakStatus, ValidationReport,
+        AppOperationStatus, AppProviderStatus, ApplyBatchReport, ApplyOperationHandle,
+        ApplyOperationStatus, BatchPlan, ChocolateyBootstrapRequest, RecoverySessionSummary,
+        RestoreSessionReport, TweakBatchConfig, TweakDefinition, TweakStatus, ValidationReport,
     },
 };
 
@@ -105,6 +105,49 @@ pub async fn apply_batch(config: TweakBatchConfig) -> Result<ApplyBatchReport, A
 
 #[tauri::command]
 #[specta::specta]
+/// Validates, plans, and starts a cancellable registry apply task.
+///
+/// # Errors
+/// Returns before mutation on catalog, validation, planning, registry-read, or worker errors.
+pub async fn start_apply_batch(config: TweakBatchConfig) -> Result<ApplyOperationHandle, AppError> {
+    let catalog = registry_data::built_in_catalog()?;
+    tauri::async_runtime::spawn_blocking(move || registry::start_apply_batch(config, catalog))
+        .await
+        .map_err(worker_error)?
+}
+
+#[tauri::command]
+#[specta::specta]
+/// Returns progress accumulated by a registry apply task.
+///
+/// # Errors
+/// Returns an invalid-ID or unknown-task error.
+#[allow(clippy::needless_pass_by_value)]
+pub fn get_apply_operation(task_id: String) -> Result<ApplyOperationStatus, AppError> {
+    let task_id =
+        uuid::Uuid::parse_str(&task_id).map_err(|error| AppError::InvalidConfigSchema {
+            message: format!("invalid registry apply task UUID: {error}"),
+        })?;
+    registry::apply_operation_status(task_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+/// Requests cancellation at the next safe registry boundary.
+///
+/// # Errors
+/// Returns an invalid-ID or unknown-task error.
+#[allow(clippy::needless_pass_by_value)]
+pub fn cancel_apply_operation(task_id: String) -> Result<(), AppError> {
+    let task_id =
+        uuid::Uuid::parse_str(&task_id).map_err(|error| AppError::InvalidConfigSchema {
+            message: format!("invalid registry apply task UUID: {error}"),
+        })?;
+    registry::cancel_apply_operation(task_id)
+}
+
+#[tauri::command]
+#[specta::specta]
 /// Produces an exact read-only plan for a complete batch.
 ///
 /// # Errors
@@ -197,6 +240,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         cancel_app_operation,
         validate_batch,
         apply_batch,
+        start_apply_batch,
+        get_apply_operation,
+        cancel_apply_operation,
         plan_batch,
         get_tweak_statuses,
         get_advisor_report,

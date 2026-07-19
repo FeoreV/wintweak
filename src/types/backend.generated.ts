@@ -55,7 +55,55 @@ export type PlannedRegistryChange = {
 };
 export type PlannedTweak = { id: string; changes: PlannedRegistryChange[] };
 export type BatchPlan = { tweaks: PlannedTweak[]; change_count: number };
-export type ApplyBatchReport = { session_id?: string; applied_tweaks: string[] };
+export type ApplyBatchReport = {
+  session_id?: string;
+  applied_tweaks: string[];
+  committed_change_count: number;
+};
+export type ApplyOperationHandle = { task_id: string };
+export type ApplyOperationPhase = "queued" | "running" | "completed" | "cancelled" | "failed";
+export type ApplyOperationEvent =
+  | { kind: "batch_started"; total_tweaks: number; total_changes: number }
+  | { kind: "tweak_started"; tweak_id: string; tweak_index: number }
+  | {
+      kind: "change_committed";
+      tweak_id: string;
+      tweak_index: number;
+      change_index: number;
+      committed_change_count: number;
+    }
+  | {
+      kind: "tweak_completed";
+      tweak_id: string;
+      tweak_index: number;
+      completed_tweak_count: number;
+    }
+  | {
+      kind: "batch_completed";
+      completed_tweak_count: number;
+      committed_change_count: number;
+      session_id?: string;
+    }
+  | {
+      kind: "cancelled";
+      completed_tweak_count: number;
+      committed_change_count: number;
+      session_id?: string;
+    }
+  | {
+      kind: "failed";
+      message: string;
+      completed_tweak_count: number;
+      committed_change_count: number;
+      session_id?: string;
+    };
+export type ApplyOperationStatus = {
+  task_id: string;
+  phase: ApplyOperationPhase;
+  events: ApplyOperationEvent[];
+  report?: ApplyBatchReport;
+  error?: string;
+};
 export type RecoverySessionSummary = {
   session_id: string;
   created_unix_seconds: number;
