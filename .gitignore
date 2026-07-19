@@ -1,0 +1,63 @@
+# Rust build artifacts
+/src-tauri/target/
+/src-tauri/target-*/
+
+# Frontend build artifacts
+/node_modules/
+/dist/
+/coverage/
+
+# Local agent and AI-tool state
+/.ag-kit-backups/
+/.agents/
+/.codex/
+/.aider/
+/.claude/
+/.continue/
+/.cursor/
+/.github-copilot/
+/.roo/
+/.windsurf/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+
+# Local editor and OS files
+/.idea/
+/.vscode/
+.cache/
+.vite/
+.turbo/
+.wrangler/
+.DS_Store
+Thumbs.db
+*.tsbuildinfo
+*.bak
+*.orig
+*.rej
+*.swp
+*.swo
+*.tmp
+
+# Logs and local environment files
+*.log
+.eslintcache
+.env
+.env.*
+!.env.example
+
+# Package-manager and test noise
+.npm/
+.pnpm-debug.log*
+test-results/
+playwright-report/
+blob-report/
+
+# Rust local outputs and generated files
+*.rs.bk
+
+# Windows artifacts
+*.pdb
+*.msi
+*.msix
+*.exe

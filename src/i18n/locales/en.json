@@ -1,0 +1,248 @@
+{
+  "nav": {
+    "advisor": "Advisor",
+    "catalog": "All tweaks",
+    "language": "Switch to Russian"
+  },
+  "hero": {
+    "title": "A clearer path to a calmer Windows PC.",
+    "body": "Local recommendations, exact change previews, and a recovery trail you control.",
+    "scan": "Scan this PC",
+    "browse": "Browse tweaks",
+    "imageAlt": "A lighthouse guiding a clear route along the coast"
+  },
+  "goals": {
+    "title": "What should Windows do better?",
+    "body": "Choose any goals that matter. Recommendations stay on this device.",
+    "privacy": {
+      "title": "Protect my privacy",
+      "body": "Reduce identifiers and optional diagnostic collection."
+    },
+    "development": {
+      "title": "Improve development",
+      "body": "Remove legacy limits that get in the way of modern tools."
+    },
+    "reduce_distractions": {
+      "title": "Reduce distractions",
+      "body": "Limit suggestions and consumer content in Windows."
+    }
+  },
+  "advisor": {
+    "title": "Your local recommendations",
+    "empty": "Choose a goal to create a recommendation plan.",
+    "ready": "Ready to review",
+    "review": "Needs your review",
+    "applied": "Already applied",
+    "mixed": "Partially applied",
+    "none": "Not relevant to your goals",
+    "previous": "Previous recommendation",
+    "next": "Next recommendation",
+    "selected": "Selected for review",
+    "select": "Add to review"
+  },
+  "status": {
+    "title": "System state",
+    "body": "{{applied}} of {{total}} available tweaks are active.",
+    "local": "Analysis stays local",
+    "recovery": "Every change gets a recovery snapshot"
+  },
+  "story": {
+    "title": "Nothing happens behind your back.",
+    "body": "WinTweak AI reads the current state, matches it to your goals, explains each decision, and waits for explicit approval before Windows changes.",
+    "read": "Read current state",
+    "match": "Match your goals",
+    "preview": "Preview exact values",
+    "recover": "Keep a recovery path"
+  },
+  "catalog": {
+    "title": "Inspect every available tweak",
+    "body": "Sources, risk, restart requirements, and exact Windows targets remain visible.",
+    "restart": "Restart required",
+    "noRestart": "No restart",
+    "source": "Microsoft source",
+    "selectedCount": "{{count}} selected",
+    "review": "Review changes",
+    "details": "View details"
+  },
+  "risk": { "low": "Low risk", "moderate": "Moderate risk", "high": "High risk" },
+  "review": {
+    "title": "Review exact changes",
+    "body": "WinTweak AI will create a recovery snapshot before each required registry write.",
+    "loading": "Reading current Windows values",
+    "changeCount": "{{count}} registry changes required",
+    "unchanged": "Already matches",
+    "apply": "Apply reviewed changes",
+    "cancel": "Cancel",
+    "success": "Changes applied safely",
+    "undo": "Undo this session",
+    "undone": "The session was restored",
+    "error": "The operation could not be completed"
+  },
+  "action": {
+    "title": "Keep the final decision yours.",
+    "body": "Review exact values, then apply only the changes you understand and want.",
+    "review": "Review {{count}} selected",
+    "browse": "Choose tweaks",
+    "local": "Local advisor. No telemetry.",
+    "platform": "Windows 10 and 11"
+  },
+  "workspace": {
+    "skip": "Skip to workspace",
+    "navigation": "Primary navigation",
+    "local": "Local analysis active",
+    "commandSearch": "Search tweaks, applications, and commands",
+    "nav": {
+      "overview": "Overview",
+      "apps": "Applications",
+      "tweaks": "Tweaks",
+      "activity": "Activity"
+    },
+    "theme": { "light": "Use light theme", "dark": "Use dark theme" },
+    "overview": {
+      "title": "System overview",
+      "subtitle": "Review the current Windows state and choose only the changes you want.",
+      "health": "Configuration coverage",
+      "healthValue": "Your Windows setup is under control",
+      "healthBody": "Each available change is documented, previewed before applying, and protected by a recovery snapshot.",
+      "inspect": "Inspect recommendations",
+      "active": "Active tweaks",
+      "ofTotal": "of {{total}} available",
+      "attention": "Needs review",
+      "readyToReview": "ready for your decision"
+    },
+    "goals": {
+      "title": "Tune recommendations",
+      "body": "Select what matters on this PC.",
+      "local": "Saved on this device"
+    },
+    "recommendations": {
+      "title": "Recommended for this PC",
+      "body": "Nothing is selected or changed automatically.",
+      "all": "Open all tweaks",
+      "emptyTitle": "Choose a tuning goal",
+      "emptyBody": "We will match available tweaks to your priorities and show the reasoning here.",
+      "add": "Add",
+      "selected": "Selected"
+    },
+    "tweaks": {
+      "title": "All tweaks",
+      "subtitle": "Search, inspect exact targets, and prepare a reversible change set.",
+      "search": "Search tweaks",
+      "filterLabel": "Filter tweaks",
+      "categoryLabel": "Tweak category",
+      "categories": {
+        "all": "All",
+        "privacy": "Privacy",
+        "context_menu": "Context menu",
+        "interface": "Interface",
+        "system": "System",
+        "optimization": "Optimization"
+      },
+      "filters": { "all": "All", "recommended": "Recommended", "applied": "Active" },
+      "count": "{{count}} shown",
+      "emptyTitle": "No tweaks found",
+      "emptyBody": "Change the search or reset the active filter.",
+      "reset": "Reset filters",
+      "target": "Windows target",
+      "restart": "Restart requirement",
+      "inactive": "Not active"
+    },
+    "selection": {
+      "label": "Pending change set",
+      "count": "{{count}} selected",
+      "review": "Review and apply"
+    },
+    "error": {
+      "title": "System data is unavailable",
+      "body": "The application could not read the tweak catalog or current Windows state.",
+      "retry": "Try again"
+    },
+    "apps": {
+      "title": "Applications",
+      "subtitle": "Build a trusted software setup without hunting through download pages.",
+      "winget": "Winget",
+      "chocolatey": "Chocolatey",
+      "optional": "Optional provider",
+      "providerPending": "Provider connection is being prepared",
+      "refreshProviders": "Refresh providers",
+      "catalogTitle": "Software catalog",
+      "catalogBody": "{{count}} applications from the curated WinUtil catalog. Select exactly what you want to install or upgrade.",
+      "scopeLabel": "Application catalog filter",
+      "scopes": { "recommended": "Recommended", "bundles": "Bundles", "updates": "Updates" },
+      "bundle": "Curated bundle",
+      "items": "applications",
+      "updatesTitle": "Updates will appear here",
+      "addWhenReady": "Provider required",
+      "available": "Available",
+      "unavailable": "Not found",
+      "bootstrap": "Will be installed on first use",
+      "search": "Search applications",
+      "category": "Category",
+      "allCategories": "All categories",
+      "sort": "Sort",
+      "sortName": "Name A–Z",
+      "sortCategory": "Category",
+      "fossOnly": "FOSS only",
+      "count": "{{count}} shown",
+      "website": "Website",
+      "installSelected": "Install or upgrade ({{count}})",
+      "installing": "Installing…",
+      "loading": "Loading app catalog…",
+      "loadErrorTitle": "App Store is unavailable",
+      "loadErrorBody": "WinTweak could not read the local app catalog or package-manager status.",
+      "fallback": "{{count}} selected application(s) are unavailable in Chocolatey and will use Winget.",
+      "installError": "One or more installations could not be started. Check the package-manager output and try again.",
+      "installComplete": "Installed or upgraded {{count}} of {{total}} selected application(s).",
+      "storeLabel": "WinTweak App Store",
+      "updateAll": "Update all",
+      "updating": "Updating…",
+      "updateComplete": "Updates completed",
+      "updateError": "Updates need attention",
+      "noUpdates": "No package-manager output was returned.",
+      "chocoConsent": "Chocolatey is not installed. Continuing downloads its official installer, then installs the selected package(s).",
+      "confirm": {
+        "run": "Continue",
+        "install": {
+          "title": "Install selected applications?",
+          "body": "WinTweak will install or upgrade {{count}} selected application(s) using the selected provider."
+        },
+        "update": {
+          "title": "Update all applications?",
+          "body": "This updates every package installed through the selected provider, not only the WinTweak catalog."
+        }
+      }
+    },
+    "activity": {
+      "title": "Activity",
+      "subtitle": "Inspect completed changes, diagnostics, and recovery sessions.",
+      "sessions": "Recovery sessions",
+      "emptyTitle": "No sessions yet",
+      "emptyBody": "Completed tweak operations with snapshots will appear here.",
+      "tweakSession": "Windows tweak session",
+      "recovery": "Recovery available",
+      "recoveryBody": "The current recovery model preserves every completed registry write before it changes Windows.",
+      "entries": "Snapshot entries",
+      "sessionId": "Session ID",
+      "restoreInReview": "Restore from plan review",
+      "selectSession": "Select a session to inspect it"
+    }
+  },
+  "tweaks": {
+    "enable_long_paths": {
+      "label": "Enable Win32 long paths",
+      "description": "Allow compatible applications to use paths beyond the legacy MAX_PATH limit."
+    },
+    "disable_advertising_id": {
+      "label": "Disable the Windows advertising ID",
+      "description": "Prevent applications from using the Windows advertising identifier."
+    },
+    "disable_consumer_features": {
+      "label": "Disable Microsoft consumer experiences",
+      "description": "Stop Windows from adding consumer suggestions through Cloud Content policy."
+    },
+    "reduce_diagnostic_data": {
+      "label": "Limit diagnostic data to required",
+      "description": "Set Windows diagnostic policy to the supported required-data level."
+    }
+  }
+}

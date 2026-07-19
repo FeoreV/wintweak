@@ -1,0 +1,82 @@
+[
+  {
+    "id": "enable_long_paths",
+    "label": "Enable Win32 long paths",
+    "description": "Enables long-path-aware applications to use paths beyond the legacy MAX_PATH limit.",
+    "category": "system",
+    "goals": ["development"],
+    "risk": "low",
+    "requires_restart": true,
+    "references": [
+      "https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation"
+    ],
+    "actions": [
+      {
+        "hive": "local_machine",
+        "key_path": "SYSTEM\\CurrentControlSet\\Control\\FileSystem",
+        "value_name": "LongPathsEnabled",
+        "value": { "kind": "dword", "value": 1 }
+      }
+    ]
+  },
+  {
+    "id": "disable_advertising_id",
+    "label": "Disable the Windows advertising ID",
+    "description": "Applies the documented machine policy that prevents apps from using the advertising identifier.",
+    "category": "privacy",
+    "goals": ["privacy"],
+    "risk": "low",
+    "requires_restart": false,
+    "references": [
+      "https://learn.microsoft.com/windows/client-management/mdm/policy-csp-privacy#disableadvertisingid"
+    ],
+    "actions": [
+      {
+        "hive": "local_machine",
+        "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\AdvertisingInfo",
+        "value_name": "DisabledByGroupPolicy",
+        "value": { "kind": "dword", "value": 1 }
+      }
+    ]
+  },
+  {
+    "id": "disable_consumer_features",
+    "label": "Disable Microsoft consumer experiences",
+    "description": "Prevents Windows consumer feature suggestions through the documented Cloud Content policy.",
+    "category": "privacy",
+    "goals": ["privacy", "reduce_distractions"],
+    "risk": "moderate",
+    "requires_restart": true,
+    "references": [
+      "https://learn.microsoft.com/windows/client-management/mdm/policy-csp-experience#allowwindowsconsumerfeatures"
+    ],
+    "actions": [
+      {
+        "hive": "local_machine",
+        "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent",
+        "value_name": "DisableWindowsConsumerFeatures",
+        "value": { "kind": "dword", "value": 1 }
+      }
+    ]
+  },
+  {
+    "id": "reduce_diagnostic_data",
+    "label": "Limit diagnostic data to required",
+    "description": "Sets the Windows diagnostic data policy to the supported required-data level.",
+    "category": "privacy",
+    "goals": ["privacy"],
+    "risk": "moderate",
+    "requires_restart": true,
+    "references": [
+      "https://learn.microsoft.com/windows/privacy/configure-windows-diagnostic-data-in-your-organization"
+    ],
+    "actions": [
+      {
+        "hive": "local_machine",
+        "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+        "value_name": "AllowTelemetry",
+        "value": { "kind": "dword", "value": 1 }
+      }
+    ]
+  }
+]

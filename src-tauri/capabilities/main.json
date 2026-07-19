@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Minimal permissions for the primary optimizer window.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
+
