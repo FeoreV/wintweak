@@ -85,6 +85,8 @@ pub struct AppInstallReport {
     pub requested_count: u32,
     pub choco_bootstrapped: bool,
     pub results: Vec<AppInstallItemResult>,
+    pub restore_blocked: bool,
+    pub restore_explanation: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
@@ -174,6 +176,8 @@ pub struct LocalizedText {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum TweakCategory {
+    Ai,
+    Developer,
     Privacy,
     Search,
     Taskbar,
@@ -297,13 +301,13 @@ pub struct RegistryRecoveryData {
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
 #[serde(deny_unknown_fields)]
-pub struct ProviderOperationResult {
+pub struct ProviderOperationResult<State, RecoveryData> {
     pub provider: ProviderKind,
     pub operation_kind: OperationKind,
-    pub pre_state: RegistryValue,
-    pub post_state: RegistryValue,
+    pub pre_state: State,
+    pub post_state: State,
     pub explanation: String,
-    pub recovery_data: RegistryRecoveryData,
+    pub recovery_data: RecoveryData,
     pub warnings: Vec<String>,
     pub restart_requirement: RestartRequirement,
 }
@@ -473,7 +477,7 @@ pub enum RecommendationDisposition {
     NotRelevant,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum TweakState {
     Enabled,
@@ -533,4 +537,49 @@ pub struct RestoreSessionReport {
     pub source_session_id: String,
     pub restored_entry_count: u32,
     pub skipped_pending_entry_count: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum AppxSafety {
+    ReviewedOptional,
+    ProtectedFramework,
+    ProtectedResource,
+    ProtectedSystem,
+    Unreviewed,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct AppxPackage {
+    pub name: String,
+    pub full_name: String,
+    pub publisher_id: String,
+    pub version: String,
+    pub architecture: String,
+    pub is_framework: bool,
+    pub is_resource: bool,
+    pub safety: AppxSafety,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct AppxRemovalPreview {
+    pub package: AppxPackage,
+    pub can_remove: bool,
+    pub restore_blocked: bool,
+    pub explanation: String,
+    pub references: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct SystemAudit {
+    pub environment: EnvironmentCheck,
+    pub pending_restart: bool,
+    pub pending_restart_reasons: Vec<String>,
+    pub tweak_statuses: Vec<TweakStatus>,
+    pub recovery_session_count: u32,
+    pub appx_package_count: u32,
+    pub package_providers: Vec<AppProviderStatus>,
 }

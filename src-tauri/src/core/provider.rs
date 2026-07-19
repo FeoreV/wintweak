@@ -23,6 +23,7 @@ pub struct OperationContext<'a> {
 pub trait Provider {
     type Operation;
     type State;
+    type RecoveryData;
 
     fn kind(&self) -> ProviderKind;
     fn read(&self, operation: &Self::Operation) -> Result<Self::State, AppError>;
@@ -31,7 +32,18 @@ pub trait Provider {
         operation: &Self::Operation,
         pre_state: Self::State,
         context: &OperationContext<'_>,
-    ) -> Result<ProviderOperationResult, AppError>;
+    ) -> Result<ProviderOperationResult<Self::State, Self::RecoveryData>, AppError>;
+}
+
+/// Read-only provider boundary for live inventories and diagnostics.
+pub trait InventoryProvider {
+    type Item;
+
+    /// Reads the current Windows state without mutation.
+    ///
+    /// # Errors
+    /// Returns a typed platform/provider error when live discovery fails.
+    fn inventory(&self) -> Result<Vec<Self::Item>, AppError>;
 }
 
 /// First provider implementation, backed by the safe Win32 registry abstraction.
@@ -48,7 +60,7 @@ impl<B> RegistryProvider<B> {
         &self,
         operation: &RegistryAction,
         context: &OperationContext<'_>,
-    ) -> Result<ProviderOperationResult, AppError>
+    ) -> Result<ProviderOperationResult<RegistryValue, RegistryRecoveryData>, AppError>
     where
         B: RegistryBackend,
     {
@@ -65,6 +77,7 @@ impl<B> RegistryProvider<B> {
 impl<B: RegistryBackend> Provider for RegistryProvider<B> {
     type Operation = RegistryAction;
     type State = RegistryValue;
+    type RecoveryData = RegistryRecoveryData;
 
     fn kind(&self) -> ProviderKind {
         ProviderKind::Registry
@@ -79,7 +92,7 @@ impl<B: RegistryBackend> Provider for RegistryProvider<B> {
         operation: &Self::Operation,
         pre_state: Self::State,
         context: &OperationContext<'_>,
-    ) -> Result<ProviderOperationResult, AppError> {
+    ) -> Result<ProviderOperationResult<Self::State, Self::RecoveryData>, AppError> {
         self.backend.write(operation)?;
         let post_state = self.backend.read(operation)?;
         if post_state != operation.value {
@@ -98,7 +111,7 @@ fn operation_result(
     pre_state: RegistryValue,
     post_state: RegistryValue,
     context: &OperationContext<'_>,
-) -> ProviderOperationResult {
+) -> ProviderOperationResult<RegistryValue, RegistryRecoveryData> {
     ProviderOperationResult {
         provider: ProviderKind::Registry,
         operation_kind: context.kind,

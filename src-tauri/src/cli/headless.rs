@@ -4,7 +4,10 @@ use std::{fs, path::Path, process::ExitCode};
 
 use crate::{
     cli::HeadlessMode,
-    core::{profiles, registry::WindowsTweakEngine, registry_data},
+    core::{
+        apps, appx::AppxProvider, profiles, provider::InventoryProvider,
+        registry::WindowsTweakEngine, registry_data, system_info::SystemInfoProvider,
+    },
     errors::AppError,
     types::{ProfileDocument, TweakBatchConfig},
 };
@@ -37,6 +40,9 @@ fn execute(mode: HeadlessMode) -> Result<(), AppError> {
         HeadlessMode::ListTweaks => list_tweaks(),
         HeadlessMode::Status => show_status(),
         HeadlessMode::ListRecovery => list_recovery(),
+        HeadlessMode::Inventory => inventory(),
+        HeadlessMode::Audit => audit(),
+        HeadlessMode::AppCatalog => app_catalog(),
         HeadlessMode::Profile {
             profile,
             dry_run,
@@ -173,4 +179,40 @@ fn list_recovery() -> Result<(), AppError> {
         );
     }
     Ok(())
+}
+
+fn inventory() -> Result<(), AppError> {
+    for package in AppxProvider::new().inventory()? {
+        tracing::info!(name = %package.name, full_name = %package.full_name, version = %package.version, architecture = %package.architecture, safety = ?package.safety, framework = package.is_framework, resource = package.is_resource, "installed Appx package");
+    }
+    Ok(())
+}
+
+fn audit() -> Result<(), AppError> {
+    let audit = SystemInfoProvider::new().audit()?;
+    tracing::info!(windows = ?audit.environment.windows, build = audit.environment.build, architecture = %audit.environment.architecture, admin = audit.environment.is_admin, pending_restart = audit.pending_restart, pending_restart_reasons = ?audit.pending_restart_reasons, appx_packages = audit.appx_package_count, recovery_sessions = audit.recovery_session_count, "system audit");
+    for status in audit.tweak_statuses {
+        tracing::info!(tweak_id = %status.id, state = ?status.state, restart = ?status.restart_requirement, "audit tweak evidence");
+    }
+    Ok(())
+}
+
+fn app_catalog() -> Result<(), AppError> {
+    for app in apps::built_in_catalog()? {
+        tracing::info!(app_id = %app.id, name = %app.name, category = %app.category, winget = %app.winget, choco = %app.choco, "reviewed application");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::require_profile_action;
+
+    #[test]
+    fn profile_execution_requires_exactly_one_explicit_action() {
+        assert!(require_profile_action(true, false).is_ok());
+        assert!(require_profile_action(false, true).is_ok());
+        assert!(require_profile_action(false, false).is_err());
+        assert!(require_profile_action(true, true).is_err());
+    }
 }

@@ -60,7 +60,7 @@ fn reads_before_every_write() {
         )
         .expect("apply batch");
 
-    assert_eq!(&*calls.borrow(), &["read", "write"]);
+    assert_eq!(&*calls.borrow(), &["read", "read", "write", "read"]);
 }
 
 #[test]
@@ -508,6 +508,138 @@ fn unsupported_windows_is_refused_before_registry_reads() {
         Err(AppError::UnsupportedEnvironment { .. })
     ));
     assert!(calls.borrow().is_empty());
+}
+
+#[test]
+fn administrator_tweak_is_refused_before_registry_reads_for_standard_user() {
+    let temp = test_directory();
+    let registry = MockRegistry::default();
+    let calls = Rc::clone(&registry.calls);
+    let mut engine = TweakEngine::with_parts(
+        registry,
+        RecoveryStore::at(temp).expect("test recovery store"),
+    );
+    engine.set_test_environment(crate::types::EnvironmentCheck {
+        windows: crate::types::SupportedWindows::Windows11,
+        build: 26_100,
+        architecture: "x86_64".to_owned(),
+        is_admin: false,
+    });
+    let mut definition = test_definition(vec![RegistryValue::Dword(1)]);
+    definition.requires_admin = true;
+
+    assert!(matches!(
+        engine.plan_batch(&test_config(), &[definition]),
+        Err(AppError::UnsupportedEnvironment { .. })
+    ));
+    assert!(calls.borrow().is_empty());
+}
+
+#[test]
+fn disabled_desired_state_uses_catalog_restore_and_session_undo_preserves_exact_value() {
+    let temp = test_directory();
+    let registry = MockRegistry::default();
+    registry
+        .values
+        .borrow_mut()
+        .insert("Value".to_owned(), RegistryValue::Dword(7));
+    let mut engine = TweakEngine::with_parts(
+        registry.clone(),
+        RecoveryStore::at(temp.clone()).expect("apply recovery store"),
+    );
+    let config = TweakBatchConfig {
+        schema_version: 1,
+        tweaks: vec![TweakRequest {
+            id: "test_tweak".to_owned(),
+            desired_state: TweakDesiredState::Disabled,
+        }],
+    };
+
+    let report = engine
+        .apply_batch(&config, &[test_definition(vec![RegistryValue::Dword(1)])])
+        .expect("apply disabled state");
+    assert_eq!(registry.values.borrow().get("Value"), None);
+
+    let mut restore_engine = TweakEngine::with_parts(
+        registry.clone(),
+        RecoveryStore::at(temp).expect("undo recovery store"),
+    );
+    restore_engine
+        .restore_session(
+            Uuid::parse_str(report.session_id.as_deref().expect("session id")).expect("UUID"),
+        )
+        .expect("undo disabled state");
+    assert_eq!(
+        registry.values.borrow().get("Value"),
+        Some(&RegistryValue::Dword(7))
+    );
+}
+
+#[test]
+fn inventory_distinguishes_mixed_unknown_and_restart_required() {
+    let temp = test_directory();
+    let registry = MockRegistry::default();
+    registry
+        .values
+        .borrow_mut()
+        .insert("First".to_owned(), RegistryValue::Dword(1));
+    registry
+        .values
+        .borrow_mut()
+        .insert("Second".to_owned(), RegistryValue::Dword(0));
+    let engine = TweakEngine::with_parts(
+        registry.clone(),
+        RecoveryStore::at(temp).expect("test recovery store"),
+    );
+    let mut definition = test_definition(vec![RegistryValue::Dword(1)]);
+    definition.detect = vec![
+        test_named_action("First", RegistryValue::Dword(1)),
+        test_named_action("Second", RegistryValue::Dword(1)),
+    ];
+    definition.apply = definition.detect.clone();
+    definition.restore = vec![
+        test_named_action("First", RegistryValue::Dword(0)),
+        test_named_action("Second", RegistryValue::Dword(0)),
+    ];
+    assert_eq!(
+        engine
+            .tweak_status(&definition)
+            .expect("mixed status")
+            .state,
+        TweakState::Mixed
+    );
+
+    registry
+        .values
+        .borrow_mut()
+        .insert("Second".to_owned(), RegistryValue::Dword(9));
+    assert_eq!(
+        engine
+            .tweak_status(&definition)
+            .expect("unknown status")
+            .state,
+        TweakState::Unknown
+    );
+
+    registry
+        .values
+        .borrow_mut()
+        .insert("Second".to_owned(), RegistryValue::Dword(1));
+    definition.restart_requirement = RestartRequirement::ExplorerRestart;
+    assert_eq!(
+        engine
+            .tweak_status(&definition)
+            .expect("restart status")
+            .state,
+        TweakState::RequiresRestart
+    );
+}
+
+fn test_named_action(value_name: &str, value: RegistryValue) -> RegistryAction {
+    RegistryAction {
+        value_name: value_name.to_owned(),
+        ..test_action(value)
+    }
 }
 
 const fn event_kind(event: &ApplyOperationEvent) -> &'static str {

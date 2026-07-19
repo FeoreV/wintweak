@@ -487,7 +487,7 @@
     },
     "githubdesktop": {
         "category": "Development",
-        "choco": "git;github-desktop",
+        "choco": "github-desktop",
         "content": "GitHub Desktop",
         "description": "GitHub Desktop is a visual Git client that simplifies collaboration on GitHub repositories with an easy-to-use interface.",
         "link": "https://desktop.github.com/",
@@ -1835,4 +1835,3 @@
         "foss": true
     }
 }
-

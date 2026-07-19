@@ -135,7 +135,7 @@
     "id": "show_file_extensions",
     "title": { "en": "Show file-name extensions", "ru": "Показывать расширения имён файлов" },
     "description": { "en": "Show known file-name extensions in File Explorer.", "ru": "Показывает расширения известных типов файлов в Проводнике." },
-    "category": "explorer",
+    "category": "developer",
     "goals": ["development"],
     "risk": "low",
     "support": { "versions": ["windows10", "windows11"], "minimum_build": 10240, "maximum_build": null, "notes": { "en": "Supported for the current user on Windows 10 and 11.", "ru": "Поддерживается для текущего пользователя в Windows 10 и 11." } },
@@ -238,5 +238,25 @@
     "reversible": true,
     "irreversible_reason": null,
     "warnings": [{ "en": "Pointer movement will feel different; this setting does not claim an FPS or latency gain.", "ru": "Движение указателя изменится; настройка не обещает прирост FPS или снижение задержки." }]
+  },
+  {
+    "id": "disable_recall_snapshots",
+    "title": { "en": "Disable Recall snapshots", "ru": "Отключить снимки Recall" },
+    "description": { "en": "Disable saving Windows Recall snapshots through the documented Windows AI policy.", "ru": "Отключает сохранение снимков Windows Recall с помощью документированной политики Windows AI." },
+    "category": "ai",
+    "goals": ["privacy"],
+    "risk": "moderate",
+    "support": { "versions": ["windows11"], "minimum_build": 26100, "maximum_build": null, "notes": { "en": "Applies only to Windows 11 builds that support Recall policy.", "ru": "Применяется только к сборкам Windows 11, поддерживающим политику Recall." } },
+    "architectures": ["x86_64", "arm64"],
+    "requires_admin": true,
+    "affected_paths": [{ "provider": "registry", "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI\\DisableAIDataAnalysis" }],
+    "detect": [{ "hive": "local_machine", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI", "value_name": "DisableAIDataAnalysis", "value": { "kind": "dword", "value": 1 } }],
+    "apply": [{ "hive": "local_machine", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI", "value_name": "DisableAIDataAnalysis", "value": { "kind": "dword", "value": 1 } }],
+    "restore": [{ "hive": "local_machine", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI", "value_name": "DisableAIDataAnalysis", "value": { "kind": "missing" } }],
+    "references": ["https://learn.microsoft.com/windows/client-management/mdm/policy-csp-windowsai#disableaidataanalysis"],
+    "restart_requirement": "reboot",
+    "reversible": true,
+    "irreversible_reason": null,
+    "warnings": [{ "en": "Recall snapshot history may become unavailable after policy refresh.", "ru": "После обновления политики история снимков Recall может стать недоступной." }]
   }
 ]

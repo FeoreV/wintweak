@@ -70,6 +70,17 @@
     "body": "WinTweak will create a recovery snapshot before each required registry write.",
     "loading": "Reading current Windows values",
     "changeCount": "{{count}} registry changes required",
+    "environment": "{{windows}} · build {{build}} · {{architecture}} · {{elevation}}",
+    "administrator": "administrator",
+    "standardUser": "standard user",
+    "operation": "{{provider}} provider · {{operation}} operation",
+    "restartRequired": "After applying: {{requirement}}.",
+    "restart": {
+      "none": "no restart",
+      "explorer_restart": "restart File Explorer",
+      "logoff": "sign out and back in",
+      "reboot": "restart Windows"
+    },
     "unchanged": "Already matches",
     "apply": "Apply reviewed changes",
     "cancel": "Cancel",
@@ -113,6 +124,7 @@
       "understand": "Understand",
       "choose": "Choose",
       "store": "Store",
+      "diagnostics": "Diagnostics",
       "recover": "Recover",
       "settings": "Settings"
     },
@@ -306,6 +318,28 @@
           "body": "This updates every package installed through the selected provider, not only the WinTweak catalog."
         }
       }
+    },
+    "appx": {
+      "loading": "Reading installed Appx packages…",
+      "inventory": "Installed Appx inventory ({{count}})",
+      "body": "Native PackageManager inventory. Removal is preview-only until exact restoration is guaranteed.",
+      "preview": "Preview"
+    },
+    "diagnostics": {
+      "title": "Diagnostics",
+      "subtitle": "Native Windows audit evidence and pending restart state.",
+      "loading": "Reading native Windows diagnostics",
+      "evidence": "System evidence",
+      "architecture": "Architecture",
+      "elevation": "Elevation",
+      "admin": "Administrator",
+      "standard": "Standard user",
+      "appx": "Appx inventory",
+      "recovery": "Recovery sessions",
+      "audit": "Compliance-style audit",
+      "pending": "Restart pending",
+      "clear": "No restart evidence",
+      "clearBody": "CBS, Windows Update, and pending file rename probes are clear."
     },
     "activity": {
       "title": "Recovery sessions",

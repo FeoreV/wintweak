@@ -679,12 +679,20 @@ impl<B: RegistryBackend> TweakEngine<B> {
         }
         let mut enabled_count = 0_usize;
         let mut disabled_count = 0_usize;
+        let explanation = format!("Detect the current state of '{}'", definition.title.en);
+        let warnings = localized_warnings(definition);
+        let context = OperationContext {
+            kind: OperationKind::Detect,
+            explanation: &explanation,
+            warnings: &warnings,
+            restart_requirement: definition.restart_requirement,
+        };
         for action in &definition.detect {
-            match self.provider.read(action) {
-                Ok(current) if current == action.value => enabled_count += 1,
-                Ok(current)
+            match self.provider.inspect(action, &context) {
+                Ok(result) if result.post_state == action.value => enabled_count += 1,
+                Ok(result)
                     if matching_restore_action(definition, action)
-                        .is_some_and(|restore| current == restore.value) =>
+                        .is_some_and(|restore| result.post_state == restore.value) =>
                 {
                     disabled_count += 1;
                 }

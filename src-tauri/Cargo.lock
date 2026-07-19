@@ -1908,6 +1908,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "windows",
  "windows-sys 0.60.2",
 ]
 

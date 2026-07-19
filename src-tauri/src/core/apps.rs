@@ -20,7 +20,10 @@ use std::{
 use uuid::Uuid;
 
 use crate::{
-    core::runner::allowlist::{ManagedOperation, execute},
+    core::{
+        provider::InventoryProvider,
+        runner::allowlist::{ManagedOperation, execute},
+    },
     errors::AppError,
     types::{
         AppDefinition, AppInstallItemResult, AppInstallReport, AppInstallRequest,
@@ -28,6 +31,37 @@ use crate::{
         AppOperationStatus, AppPackageManager, AppProviderStatus, ChocolateyBootstrapRequest,
     },
 };
+
+/// Typed package-provider facade over the reviewed catalog and fixed runner templates.
+pub struct PackageProvider;
+
+impl PackageProvider {
+    pub const fn new() -> Self {
+        Self
+    }
+    pub fn statuses(&self) -> Vec<AppProviderStatus> {
+        provider_statuses()
+    }
+    pub fn install(&self, request: AppInstallRequest) -> Result<AppOperationHandle, AppError> {
+        start_install(request, None)
+    }
+    pub fn update(&self, request: AppInstallRequest) -> Result<AppOperationHandle, AppError> {
+        start_update(request, None)
+    }
+}
+
+impl Default for PackageProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InventoryProvider for PackageProvider {
+    type Item = AppDefinition;
+    fn inventory(&self) -> Result<Vec<Self::Item>, AppError> {
+        built_in_catalog()
+    }
+}
 
 const BUILT_IN_APPS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -161,6 +195,8 @@ pub fn start_install(
                 requested_count: u32::try_from(results.len()).unwrap_or(u32::MAX),
                 choco_bootstrapped: false,
                 results,
+                restore_blocked: true,
+                restore_explanation: "Package installation is not automatically reversible; uninstall and application data restoration cannot be guaranteed.".to_owned(),
             };
             *task.report.lock().expect("app task report lock poisoned") = Some(report);
             let phase = if task.cancelled.load(Ordering::Acquire) {
@@ -259,6 +295,8 @@ pub fn start_update(
                 requested_count: u32::try_from(results.len()).unwrap_or(u32::MAX),
                 choco_bootstrapped: false,
                 results,
+                restore_blocked: true,
+                restore_explanation: "Package updates are not automatically reversible; prior package versions and application data cannot be guaranteed.".to_owned(),
             });
             let phase = if task.cancelled.load(Ordering::Acquire) {
                 AppOperationPhase::Cancelled

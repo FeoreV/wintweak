@@ -56,6 +56,22 @@ pub struct Arguments {
     #[arg(long, conflicts_with = "restore")]
     pub list_recovery: bool,
 
+    /// Enumerate installed Appx packages with conservative safety classification.
+    #[arg(long)]
+    pub inventory: bool,
+
+    /// Print native system, pending-restart, provider, recovery, and tweak evidence.
+    #[arg(long)]
+    pub audit: bool,
+
+    /// Print the reviewed Winget/Chocolatey application catalog.
+    #[arg(long)]
+    pub app_catalog: bool,
+
+    /// Print native diagnostics (alias of the evidence-rich system audit).
+    #[arg(long)]
+    pub diagnostics: bool,
+
     /// Select human-readable or JSON structured logs.
     #[arg(long, value_enum, default_value = "human")]
     pub log_format: LogFormat,
@@ -77,6 +93,9 @@ pub enum HeadlessMode {
     ListTweaks,
     Status,
     ListRecovery,
+    Inventory,
+    Audit,
+    AppCatalog,
     Profile {
         profile: CliProfile,
         dry_run: bool,
@@ -157,6 +176,15 @@ impl Arguments {
         }
         if self.list_recovery {
             return Mode::Headless(HeadlessMode::ListRecovery);
+        }
+        if self.inventory {
+            return Mode::Headless(HeadlessMode::Inventory);
+        }
+        if self.audit || self.diagnostics {
+            return Mode::Headless(HeadlessMode::Audit);
+        }
+        if self.app_catalog {
+            return Mode::Headless(HeadlessMode::AppCatalog);
         }
         Mode::Gui
     }

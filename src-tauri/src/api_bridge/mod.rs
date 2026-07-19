@@ -3,15 +3,18 @@
 
 use crate::{
     core::{
-        advisor, apps, profiles, registry, registry::WindowsTweakEngine, registry_data, validator,
+        advisor, apps, apps::PackageProvider, appx::AppxProvider, profiles,
+        provider::InventoryProvider, registry, registry::WindowsTweakEngine, registry_data,
+        system_info::SystemInfoProvider, validator,
     },
     errors::AppError,
     types::{
         AdvisorReport, AdvisorRequest, AppDefinition, AppInstallRequest, AppOperationHandle,
         AppOperationStatus, AppProviderStatus, ApplyBatchReport, ApplyOperationHandle,
-        ApplyOperationStatus, BatchPlan, ChocolateyBootstrapRequest, ProfileDefinition,
-        ProfileName, RecoverySessionSummary, RestoreSessionReport, TweakBatchConfig,
-        TweakDefinition, TweakStatus, ValidationReport,
+        ApplyOperationStatus, AppxPackage, AppxRemovalPreview, BatchPlan,
+        ChocolateyBootstrapRequest, ProfileDefinition, ProfileName, RecoverySessionSummary,
+        RestoreSessionReport, SystemAudit, TweakBatchConfig, TweakDefinition, TweakStatus,
+        ValidationReport,
     },
 };
 
@@ -33,6 +36,30 @@ pub fn list_profiles() -> Vec<ProfileDefinition> {
 
 #[tauri::command]
 #[specta::specta]
+pub async fn list_appx_packages() -> Result<Vec<AppxPackage>, AppError> {
+    tauri::async_runtime::spawn_blocking(|| AppxProvider::new().inventory())
+        .await
+        .map_err(worker_error)?
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn preview_appx_removal(full_name: String) -> Result<AppxRemovalPreview, AppError> {
+    tauri::async_runtime::spawn_blocking(move || AppxProvider::new().removal_preview(&full_name))
+        .await
+        .map_err(worker_error)?
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_system_audit() -> Result<SystemAudit, AppError> {
+    tauri::async_runtime::spawn_blocking(|| SystemInfoProvider::new().audit())
+        .await
+        .map_err(worker_error)?
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn plan_profile(name: ProfileName) -> Result<BatchPlan, AppError> {
     let catalog = registry_data::built_in_catalog()?;
     let config = profiles::plan(name, &catalog)?;
@@ -46,27 +73,27 @@ pub async fn plan_profile(name: ProfileName) -> Result<BatchPlan, AppError> {
 #[tauri::command]
 #[specta::specta]
 pub fn list_apps() -> Result<Vec<AppDefinition>, AppError> {
-    apps::built_in_catalog()
+    PackageProvider::new().inventory()
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn get_app_provider_statuses() -> Vec<AppProviderStatus> {
-    apps::provider_statuses()
+    PackageProvider::new().statuses()
 }
 
 #[tauri::command]
 #[specta::specta]
 #[allow(clippy::needless_pass_by_value)]
 pub fn start_app_install(request: AppInstallRequest) -> Result<AppOperationHandle, AppError> {
-    apps::start_install(request, None)
+    PackageProvider::new().install(request)
 }
 
 #[tauri::command]
 #[specta::specta]
 #[allow(clippy::needless_pass_by_value)]
 pub fn start_app_update(request: AppInstallRequest) -> Result<AppOperationHandle, AppError> {
-    apps::start_update(request, None)
+    PackageProvider::new().update(request)
 }
 
 #[tauri::command]
@@ -254,6 +281,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
         list_tweaks,
         list_profiles,
+        list_appx_packages,
+        preview_appx_removal,
+        get_system_audit,
         plan_profile,
         list_apps,
         get_app_provider_statuses,

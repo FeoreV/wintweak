@@ -29,6 +29,24 @@ pub fn is_user_admin() -> bool {
 }
 
 #[cfg(windows)]
+/// Returns native registry signals which indicate that Windows has a pending restart.
+///
+/// # Errors
+/// Returns a typed registry error when a signal cannot be queried safely.
+pub fn pending_restart_reasons() -> Result<Vec<String>, AppError> {
+    platform::pending_restart_reasons()
+}
+
+#[cfg(not(windows))]
+/// Reports that pending-restart discovery is unavailable off Windows.
+///
+/// # Errors
+/// Always returns [`AppError::UnsupportedPlatform`] on non-Windows targets.
+pub fn pending_restart_reasons() -> Result<Vec<String>, AppError> {
+    Err(AppError::UnsupportedPlatform)
+}
+
+#[cfg(windows)]
 mod platform {
     use std::ptr;
 
@@ -43,6 +61,64 @@ mod platform {
 
     use super::{AppError, RegistryAction, RegistryBackend, RegistryValue, WindowsRegistry};
     use crate::types::RegistryHive;
+
+    pub(super) fn pending_restart_reasons() -> Result<Vec<String>, AppError> {
+        let mut reasons = Vec::new();
+        for (path, label) in [
+            (
+                "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending",
+                "component_based_servicing",
+            ),
+            (
+                "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired",
+                "windows_update",
+            ),
+        ] {
+            let action = probe_action(path, "");
+            if open_key(&action, KEY_QUERY_VALUE)?.is_some() {
+                reasons.push(label.to_owned());
+            }
+        }
+        let rename = probe_action(
+            "SYSTEM\\CurrentControlSet\\Control\\Session Manager",
+            "PendingFileRenameOperations",
+        );
+        if value_exists(&rename)? {
+            reasons.push("pending_file_rename".to_owned());
+        }
+        Ok(reasons)
+    }
+
+    fn probe_action(key_path: &str, value_name: &str) -> RegistryAction {
+        RegistryAction {
+            hive: RegistryHive::LocalMachine,
+            key_path: key_path.to_owned(),
+            value_name: value_name.to_owned(),
+            value: RegistryValue::Missing,
+        }
+    }
+
+    fn value_exists(action: &RegistryAction) -> Result<bool, AppError> {
+        let Some(key) = open_key(action, KEY_QUERY_VALUE)? else {
+            return Ok(false);
+        };
+        let value_name = wide(&action.value_name)?;
+        let status = unsafe {
+            RegQueryValueExW(
+                key.0,
+                value_name.as_ptr(),
+                ptr::null(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+            )
+        };
+        if status == ERROR_FILE_NOT_FOUND {
+            return Ok(false);
+        }
+        ensure_success(status, action)?;
+        Ok(true)
+    }
 
     struct OwnedKey(HKEY);
 

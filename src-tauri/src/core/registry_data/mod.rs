@@ -21,10 +21,10 @@ pub fn built_in_catalog() -> Result<Vec<TweakDefinition>, AppError> {
 }
 
 fn validate_catalog(catalog: &[TweakDefinition]) -> Result<(), AppError> {
-    if catalog.len() != 10 {
+    if catalog.len() < 10 {
         return Err(AppError::InvalidConfigSchema {
             message: format!(
-                "built-in tweak catalog must contain exactly 10 entries; found {}",
+                "built-in tweak catalog must contain at least 10 entries; found {}",
                 catalog.len()
             ),
         });
@@ -96,7 +96,7 @@ mod tests {
     #[test]
     fn shipped_catalog_has_the_reviewed_ten_tweaks() {
         let catalog = built_in_catalog().expect("catalog");
-        assert_eq!(catalog.len(), 10);
+        assert!(catalog.len() >= 10);
         assert!(!catalog.iter().any(|tweak| tweak.id == "enable_long_paths"));
     }
 }

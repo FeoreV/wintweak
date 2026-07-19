@@ -13,6 +13,7 @@ import {
   MessageBar,
   MessageBarBody,
   Spinner,
+  Tooltip,
 } from "@fluentui/react-components";
 import {
   AppsRegular,
@@ -36,21 +37,26 @@ import {
 } from "@fluentui/react-icons";
 import { type ReactNode, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { deriveHomeState } from "../lib/deriveHomeState";
 import type {
   AdvisorReport,
   AppDefinition,
   AppInstallReport,
   AppPackageManager,
   AppProviderStatus,
+  AppxPackage,
+  AppxRemovalPreview,
   ProfileDefinition,
   RecommendationDisposition,
   RecoverySessionSummary,
+  SystemAudit,
   TweakDefinition,
   TweakStatus,
   UserGoal,
 } from "../types/backend.generated";
+import { HomeWorkspace } from "./HomeWorkspace";
 
-type ProductArea = "understand" | "choose" | "store" | "recover" | "settings";
+type ProductArea = "understand" | "choose" | "store" | "diagnostics" | "recover" | "settings";
 type Filter = "all" | "recommended" | TweakStatus["state"];
 
 type TweakerWorkspaceProps = {
@@ -76,6 +82,17 @@ type TweakerWorkspaceProps = {
   onRetry: () => void;
   apps: AppDefinition[];
   appProviders: AppProviderStatus[];
+  appxPackages: AppxPackage[];
+  appxPreview?: AppxRemovalPreview;
+  appxLoading: boolean;
+  onPreviewAppx: (fullName: string) => void;
+  systemAudit?: SystemAudit;
+  systemAuditLoading: boolean;
+  systemAuditError: boolean;
+  nativeAuditAvailable: boolean;
+  advisorLoading: boolean;
+  advisorError: boolean;
+  lastDataUpdatedAt: number;
   selectedApps: Set<string>;
   appManager: AppPackageManager;
   appInstalling: boolean;
@@ -134,6 +151,17 @@ export function TweakerWorkspace({
   onRetry,
   apps,
   appProviders,
+  appxPackages,
+  appxPreview,
+  appxLoading,
+  onPreviewAppx,
+  systemAudit,
+  systemAuditLoading,
+  systemAuditError,
+  nativeAuditAvailable,
+  advisorLoading,
+  advisorError,
+  lastDataUpdatedAt,
   selectedApps,
   appManager,
   appInstalling,
@@ -181,6 +209,33 @@ export function TweakerWorkspace({
   const appliedCount = statuses.filter((status) =>
     ["enabled", "requires_restart"].includes(status.state),
   ).length;
+  const homeState = useMemo(
+    () =>
+      deriveHomeState({
+        loading: loading || systemAuditLoading || advisorLoading,
+        error: error || systemAuditError || advisorError,
+        nativeAuditAvailable,
+        audit: systemAudit,
+        advisor,
+        catalog,
+        providers: appProviders,
+        recoveries,
+      }),
+    [
+      advisor,
+      advisorError,
+      advisorLoading,
+      appProviders,
+      catalog,
+      error,
+      loading,
+      nativeAuditAvailable,
+      recoveries,
+      systemAudit,
+      systemAuditError,
+      systemAuditLoading,
+    ],
+  );
   const categories = useMemo(
     () => [...new Set(catalog.map((tweak) => tweak.category))].sort(),
     [catalog],
@@ -238,6 +293,10 @@ export function TweakerWorkspace({
     },
     choose: { title: t("workspace.choose.title"), subtitle: t("workspace.choose.subtitle") },
     store: { title: t("workspace.apps.title"), subtitle: t("workspace.apps.subtitle") },
+    diagnostics: {
+      title: t("workspace.diagnostics.title"),
+      subtitle: t("workspace.diagnostics.subtitle"),
+    },
     recover: { title: t("workspace.recover.title"), subtitle: t("workspace.recover.subtitle") },
     settings: { title: t("workspace.settings.title"), subtitle: t("workspace.settings.subtitle") },
   };
@@ -256,48 +315,70 @@ export function TweakerWorkspace({
         <nav className="rail-nav">
           <RailItem
             icon={<HomeRegular />}
-            label={t("workspace.nav.understand")}
+            label="Home"
             active={view === "understand"}
             onClick={() => setView("understand")}
           />
           <RailItem
             icon={<SettingsRegular />}
-            label={t("workspace.nav.choose")}
+            label="Optimize"
             active={view === "choose"}
             onClick={() => openAllTweaks()}
           />
           <RailItem
             icon={<AppsRegular />}
-            label={t("workspace.nav.store")}
+            label="Apps"
             active={view === "store"}
             onClick={() => setView("store")}
           />
           <RailItem
             icon={<HistoryRegular />}
-            label={t("workspace.nav.recover")}
+            label="Recovery"
             active={view === "recover"}
             badge={recoveries.length > 0 ? recoveries.length : undefined}
             onClick={() => setView("recover")}
+          />
+          <RailItem
+            icon={<WarningRegular />}
+            label="Windows"
+            active={view === "diagnostics"}
+            onClick={() => setView("diagnostics")}
           />
         </nav>
         <div className="rail-actions">
           <RailItem
             icon={<SettingsRegular />}
-            label={t("workspace.nav.settings")}
+            label="Settings"
             active={view === "settings"}
             onClick={() => setView("settings")}
           />
+          {systemAudit ? (
+            <div className="rail-device" aria-label="Current Windows device">
+              <span className="rail-device__icon">
+                <CodeRegular />
+              </span>
+              <div>
+                <strong>
+                  {systemAudit.environment.windows === "windows11" ? "Windows 11" : "Windows 10"}
+                </strong>
+                <small>Build {systemAudit.environment.build}</small>
+                <small>{systemAudit.environment.architecture}</small>
+              </div>
+            </div>
+          ) : null}
         </div>
       </aside>
 
       <main className="workspace" id="workspace-main">
-        <header className="workspace-header workspace-enter">
-          <div>
-            <div className="product-name">WinTweak</div>
-            <h1>{title}</h1>
-            <p>{subtitle}</p>
+        <header className="workspace-commandbar workspace-enter" aria-label="System commands">
+          <div className="workspace-commandbar__heading">
+            <h1>{view === "understand" ? greeting() : title}</h1>
+            <p>{view === "understand" ? homeSubtitle(homeState, systemAudit) : subtitle}</p>
           </div>
           <div className="command-header">
+            <span className="workspace-commandbar__updated">
+              Last update: {formatUpdatedAt(lastDataUpdatedAt, i18n.language)}
+            </span>
             <Input
               className="command-search"
               contentBefore={<SearchRegular />}
@@ -307,10 +388,13 @@ export function TweakerWorkspace({
                 if (data.value) setView("choose");
               }}
             />
+            <Button appearance="subtle" icon={<ArrowClockwiseRegular />} onClick={onRetry}>
+              Rescan
+            </Button>
           </div>
         </header>
 
-        {error ? (
+        {view !== "understand" && error ? (
           <section className="error-state workspace-enter" aria-live="polite">
             <WarningRegular />
             <div>
@@ -321,23 +405,38 @@ export function TweakerWorkspace({
               {t("workspace.error.retry")}
             </Button>
           </section>
-        ) : loading ? (
+        ) : view !== "understand" && loading ? (
           <section className="loading-grid workspace-enter" aria-label={t("review.loading")}>
             <div className="skeleton skeleton-wide" />
             <div className="skeleton" />
             <div className="skeleton" />
           </section>
         ) : view === "understand" ? (
-          <UnderstandWorkspace
-            catalog={catalog}
-            appliedCount={appliedCount}
-            recoveryCount={recoveries.length}
-            onOpenAll={openAllTweaks}
+          <HomeWorkspace
+            state={homeState}
+            audit={systemAudit}
+            providers={appProviders}
+            recoveries={recoveries}
+            onRetry={onRetry}
+            onOpenOptimize={(recommendedOnly) =>
+              openAllTweaks(recommendedOnly ? "recommended" : "all")
+            }
+            onReviewTweak={(tweakId) => {
+              if (!selectedIds.has(tweakId)) onToggle(tweakId);
+              onReview();
+            }}
+            onOpenApps={() => setView("store")}
+            onOpenWindows={() => setView("diagnostics")}
+            onOpenRecovery={() => setView("recover")}
           />
         ) : view === "store" ? (
           <ApplicationsWorkspace
             apps={apps}
             providers={appProviders}
+            appxPackages={appxPackages}
+            appxPreview={appxPreview}
+            appxLoading={appxLoading}
+            onPreviewAppx={onPreviewAppx}
             selectedIds={selectedApps}
             manager={appManager}
             installing={appInstalling}
@@ -356,6 +455,8 @@ export function TweakerWorkspace({
             onCancel={onCancelAppOperation}
             onRefreshProviders={onRefreshProviders}
           />
+        ) : view === "diagnostics" ? (
+          <DiagnosticsWorkspace audit={systemAudit} />
         ) : view === "recover" ? (
           <RecoveryWorkspace
             recoveries={recoveries}
@@ -860,19 +961,61 @@ type RailItemProps = {
 
 function RailItem({ icon, label, active, badge, onClick }: RailItemProps) {
   return (
-    <button
-      type="button"
-      className="rail-button"
-      data-active={active}
-      aria-current={active ? "page" : undefined}
-      aria-label={label}
-      onClick={onClick}
+    <Tooltip
+      content={{ children: label, className: "rail-tooltip" }}
+      relationship="label"
+      positioning={{ position: "after", align: "center", offset: { crossAxis: 0, mainAxis: 10 } }}
+      withArrow
     >
-      {icon}
-      <span>{label}</span>
-      {badge ? <b>{badge}</b> : null}
-    </button>
+      <button
+        type="button"
+        className="rail-button"
+        data-active={active}
+        aria-current={active ? "page" : undefined}
+        onClick={onClick}
+      >
+        {icon}
+        <span>{label}</span>
+        {badge ? <b>{badge}</b> : null}
+      </button>
+    </Tooltip>
   );
+}
+
+function greeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+function homeSubtitle(state: ReturnType<typeof deriveHomeState>, audit?: SystemAudit): string {
+  if (state.kind === "loading") return "Reading current Windows and application evidence.";
+  if (state.kind === "error") return "Current system evidence could not be loaded.";
+  if (state.kind === "nativeAuditUnavailable") {
+    return "Open the desktop app for native Windows evidence.";
+  }
+  if (state.kind === "restartEvidence")
+    return "Windows reports a restart signal that needs review.";
+  if (state.kind === "providerAttention")
+    return "One or more application providers need attention.";
+  if (state.kind === "reviewRequired") return "A documented change needs your review.";
+  if (state.kind === "actionableTweak") return "A recommendation is ready for review.";
+  if (audit)
+    return `${audit.environment.windows === "windows11" ? "Windows 11" : "Windows 10"} build ${audit.environment.build} evidence is available.`;
+  return "Review documented changes and recovery activity.";
+}
+
+function formatUpdatedAt(value: number, locale: string): string {
+  if (value <= 0) return "not yet available";
+  const elapsedSeconds = Math.max(0, Math.round((Date.now() - value) / 1000));
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  if (elapsedSeconds < 60) return formatter.format(-elapsedSeconds, "second");
+  const elapsedMinutes = Math.round(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) return formatter.format(-elapsedMinutes, "minute");
+  const elapsedHours = Math.round(elapsedMinutes / 60);
+  if (elapsedHours < 24) return formatter.format(-elapsedHours, "hour");
+  return new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short" }).format(value);
 }
 
 type SettingsWorkspaceProps = {
@@ -927,6 +1070,10 @@ function SettingsWorkspace({
 type ApplicationsWorkspaceProps = {
   apps: AppDefinition[];
   providers: AppProviderStatus[];
+  appxPackages: AppxPackage[];
+  appxPreview?: AppxRemovalPreview;
+  appxLoading: boolean;
+  onPreviewAppx: (fullName: string) => void;
   selectedIds: Set<string>;
   manager: AppPackageManager;
   installing: boolean;
@@ -949,6 +1096,10 @@ type ApplicationsWorkspaceProps = {
 function ApplicationsWorkspace({
   apps,
   providers,
+  appxPackages,
+  appxPreview,
+  appxLoading,
+  onPreviewAppx,
   selectedIds,
   manager,
   installing,
@@ -1147,6 +1298,40 @@ function ApplicationsWorkspace({
           {t("workspace.apps.count", { count: filteredApps.length })}
         </span>
       </div>
+      <details className="app-operation appx-inventory">
+        <summary>
+          {appxLoading
+            ? t("workspace.appx.loading")
+            : t("workspace.appx.inventory", { count: appxPackages.length })}
+        </summary>
+        <p>{t("workspace.appx.body")}</p>
+        {appxPackages.slice(0, 100).map((item) => (
+          <div className="appx-row" key={item.full_name}>
+            <span>
+              <strong>{item.name}</strong>
+              <small>
+                {item.version} · {item.architecture}
+              </small>
+            </span>
+            <Badge
+              appearance="tint"
+              color={item.safety === "reviewed_optional" ? "informative" : "subtle"}
+            >
+              {item.safety}
+            </Badge>
+            <Button appearance="subtle" onClick={() => onPreviewAppx(item.full_name)}>
+              {t("workspace.appx.preview")}
+            </Button>
+          </div>
+        ))}
+        {appxPreview ? (
+          <MessageBar intent={appxPreview.can_remove ? "warning" : "info"}>
+            <MessageBarBody>
+              {appxPreview.package.name}: {appxPreview.explanation}
+            </MessageBarBody>
+          </MessageBar>
+        ) : null}
+      </details>
       {fallbackCount > 0 ? (
         <p className="app-notice">{t("workspace.apps.fallback", { count: fallbackCount })}</p>
       ) : null}
@@ -1236,6 +1421,7 @@ function OperationResult({ report }: { report: AppInstallReport }) {
           <span>{item.message || item.package_id}</span>
         </p>
       ))}
+      {report.restore_blocked ? <p className="app-notice">{report.restore_explanation}</p> : null}
     </details>
   );
 }
@@ -1256,7 +1442,78 @@ function MaintenanceResult({ report }: { report: AppInstallReport }) {
           <span>{item.message || t("workspace.apps.noUpdates")}</span>
         </p>
       ))}
+      {report.restore_blocked ? <p className="app-notice">{report.restore_explanation}</p> : null}
     </details>
+  );
+}
+
+function DiagnosticsWorkspace({ audit }: { audit?: SystemAudit }) {
+  const { t } = useTranslation();
+  if (!audit) {
+    return (
+      <section className="apps-empty workspace-enter">
+        <Spinner label={t("workspace.diagnostics.loading")} />
+      </section>
+    );
+  }
+  const counts = audit.tweak_statuses.reduce<Record<string, number>>((result, item) => {
+    result[item.state] = (result[item.state] ?? 0) + 1;
+    return result;
+  }, {});
+  return (
+    <section
+      className="activity-workspace workspace-enter"
+      aria-label={t("workspace.diagnostics.title")}
+    >
+      <div className="activity-list">
+        <div className="activity-list__heading">
+          <h2>{t("workspace.diagnostics.evidence")}</h2>
+        </div>
+        <div className="diagnostic-card">
+          <strong>Windows</strong>
+          <span>
+            {audit.environment.windows} build {audit.environment.build}
+          </span>
+        </div>
+        <div className="diagnostic-card">
+          <strong>{t("workspace.diagnostics.architecture")}</strong>
+          <span>{audit.environment.architecture}</span>
+        </div>
+        <div className="diagnostic-card">
+          <strong>{t("workspace.diagnostics.elevation")}</strong>
+          <span>
+            {audit.environment.is_admin
+              ? t("workspace.diagnostics.admin")
+              : t("workspace.diagnostics.standard")}
+          </span>
+        </div>
+        <div className="diagnostic-card">
+          <strong>{t("workspace.diagnostics.appx")}</strong>
+          <span>{audit.appx_package_count}</span>
+        </div>
+        <div className="diagnostic-card">
+          <strong>{t("workspace.diagnostics.recovery")}</strong>
+          <span>{audit.recovery_session_count}</span>
+        </div>
+      </div>
+      <aside className="activity-inspector">
+        <span>{t("workspace.diagnostics.audit")}</span>
+        <h2>
+          {audit.pending_restart
+            ? t("workspace.diagnostics.pending")
+            : t("workspace.diagnostics.clear")}
+        </h2>
+        <p>{audit.pending_restart_reasons.join(", ") || t("workspace.diagnostics.clearBody")}</p>
+        <dl>
+          {Object.entries(counts).map(([state, count]) => (
+            <div key={state}>
+              <dt>{state}</dt>
+              <dd>{count}</dd>
+            </div>
+          ))}
+        </dl>
+      </aside>
+    </section>
   );
 }
 

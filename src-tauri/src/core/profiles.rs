@@ -232,4 +232,15 @@ mod tests {
         };
         assert!(document_to_batch(&duplicate, &catalog).is_err());
     }
+
+    #[test]
+    fn exported_profile_round_trips_through_the_strict_typed_format() {
+        let exported = export_document(ProfileName::Developer).expect("export profile");
+        let json = serde_json::to_string(&exported).expect("serialize profile");
+        let imported: ProfileDocument = serde_json::from_str(&json).expect("deserialize profile");
+        assert_eq!(imported.tweaks, exported.tweaks);
+
+        let executable_field = r#"{"schema_version":1,"name":"bad","tweaks":[],"script":"whoami"}"#;
+        assert!(serde_json::from_str::<ProfileDocument>(executable_field).is_err());
+    }
 }

@@ -14,6 +14,8 @@ import type {
   AppOperationStatus,
   AppPackageManager,
   AppProviderStatus,
+  AppxPackage,
+  AppxRemovalPreview,
   BatchPlan,
   ChocolateyBootstrapRequest,
   ProfileDefinition,
@@ -22,6 +24,7 @@ import type {
   RegistryAction,
   RegistryValue,
   RestoreSessionReport,
+  SystemAudit,
   TweakBatchConfig,
   TweakDefinition,
   TweakState,
@@ -34,8 +37,11 @@ const mockStates = new Map<string, TweakState>(catalog.map((item) => [item.id, "
 const profiles: ProfileDefinition[] = [
   {
     name: "privacy",
-    title: { en: "Privacy", ru: "Privacy" },
-    description: { en: "Reduce personalization and activity collection.", ru: "Privacy" },
+    title: { en: "Privacy", ru: "Конфиденциальность" },
+    description: {
+      en: "Reduce documented Windows personalization and activity collection.",
+      ru: "Сокращает документированную персонализацию Windows и сбор данных об активности.",
+    },
     tweaks: [
       "reduce_diagnostic_data",
       "disable_advertising_id",
@@ -46,19 +52,26 @@ const profiles: ProfileDefinition[] = [
   },
   {
     name: "balanced",
-    title: { en: "Balanced", ru: "Balanced" },
-    description: { en: "Conservative privacy and usability defaults.", ru: "Balanced" },
+    title: { en: "Balanced", ru: "Сбалансированный" },
+    description: {
+      en: "Conservative privacy and Explorer usability defaults.",
+      ru: "Осторожные настройки конфиденциальности и удобства Проводника.",
+    },
     tweaks: [
-      "disable_advertising_id",
-      "disable_bing_search_suggestions",
-      "show_file_extensions",
-      "dark_mode",
-    ].map((id) => ({ id, desired_state: "enabled" })),
+      { id: "disable_advertising_id", desired_state: "enabled" },
+      { id: "disable_bing_search_suggestions", desired_state: "enabled" },
+      { id: "show_file_extensions", desired_state: "enabled" },
+      { id: "show_hidden_files", desired_state: "disabled" },
+      { id: "dark_mode", desired_state: "enabled" },
+    ],
   },
   {
     name: "performance",
-    title: { en: "Performance", ru: "Performance" },
-    description: { en: "Low-risk interaction and shell adjustments.", ru: "Performance" },
+    title: { en: "Performance", ru: "Быстродействие" },
+    description: {
+      en: "Interaction-focused defaults without unverified performance claims.",
+      ru: "Настройки взаимодействия без недоказанных обещаний прироста производительности.",
+    },
     tweaks: ["disable_widgets", "disable_mouse_acceleration", "show_file_extensions"].map((id) => ({
       id,
       desired_state: "enabled",
@@ -66,21 +79,29 @@ const profiles: ProfileDefinition[] = [
   },
   {
     name: "developer",
-    title: { en: "Developer", ru: "Developer" },
-    description: { en: "Developer-friendly Explorer and shell defaults.", ru: "Developer" },
-    tweaks: ["show_file_extensions", "show_hidden_files", "dark_mode"].map((id) => ({
-      id,
-      desired_state: "enabled",
-    })),
+    title: { en: "Developer", ru: "Разработчик" },
+    description: {
+      en: "Developer-friendly Explorer and shell defaults.",
+      ru: "Удобные для разработки настройки Проводника и оболочки.",
+    },
+    tweaks: [
+      { id: "show_file_extensions", desired_state: "enabled" },
+      { id: "show_hidden_files", desired_state: "enabled" },
+      { id: "dark_mode", desired_state: "enabled" },
+      { id: "disable_bing_search_suggestions", desired_state: "disabled" },
+    ],
   },
   {
     name: "minimal",
-    title: { en: "Minimal", ru: "Minimal" },
-    description: { en: "Small, low-risk set.", ru: "Minimal" },
-    tweaks: ["show_file_extensions", "disable_mouse_acceleration"].map((id) => ({
-      id,
-      desired_state: "enabled",
-    })),
+    title: { en: "Minimal", ru: "Минимальный" },
+    description: {
+      en: "Small, low-risk set with minimal policy impact.",
+      ru: "Небольшой набор с низким риском и минимальным влиянием на политики.",
+    },
+    tweaks: [
+      { id: "show_file_extensions", desired_state: "enabled" },
+      { id: "show_hidden_files", desired_state: "disabled" },
+    ],
   },
 ];
 type UpstreamApp = Omit<AppDefinition, "id" | "name" | "choco"> & {
@@ -154,7 +175,13 @@ export function mockCall(command: string, args?: Record<string, unknown>): unkno
       kind: command === "start_app_install" ? "install" : "update",
       phase: "completed",
       events: [],
-      report: { requested_count: results.length, choco_bootstrapped: false, results },
+      report: {
+        requested_count: results.length,
+        choco_bootstrapped: false,
+        results,
+        restore_blocked: true,
+        restore_explanation: "Preview package operations are not automatically reversible.",
+      },
     });
     return { task_id } satisfies AppOperationHandle;
   }
@@ -180,6 +207,13 @@ export function mockCall(command: string, args?: Record<string, unknown>): unkno
     return;
   }
   if (command === "list_tweaks") return structuredClone(catalog);
+  if (
+    command === "list_appx_packages" ||
+    command === "preview_appx_removal" ||
+    command === "get_system_audit"
+  ) {
+    throw new Error("Native Windows inventory is unavailable in browser preview mode.");
+  }
   if (command === "list_profiles") return structuredClone(profiles);
   if (command === "plan_profile") {
     const profile = profiles.find((item) => item.name === args?.name);
@@ -319,6 +353,10 @@ export function mockCall(command: string, args?: Record<string, unknown>): unkno
 export const bridge = {
   listTweaks: () => call<TweakDefinition[]>("list_tweaks"),
   listProfiles: () => call<ProfileDefinition[]>("list_profiles"),
+  appxPackages: () => call<AppxPackage[]>("list_appx_packages"),
+  previewAppxRemoval: (fullName: string) =>
+    call<AppxRemovalPreview>("preview_appx_removal", { fullName }),
+  systemAudit: () => call<SystemAudit>("get_system_audit"),
   planProfile: (name: ProfileName) => call<BatchPlan>("plan_profile", { name }),
   statuses: () => call<TweakStatus[]>("get_tweak_statuses"),
   advisor: (request: AdvisorRequest) => call<AdvisorReport>("get_advisor_report", { request }),

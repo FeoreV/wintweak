@@ -1,5 +1,5 @@
 fn main() {
-    let manifest = if std::env::var("PROFILE").is_ok_and(|profile| profile == "release") {
+    let manifest = if std::env::var_os("CARGO_FEATURE_ELEVATED").is_some() {
         include_str!("app.manifest")
     } else {
         include_str!("app.dev.manifest")

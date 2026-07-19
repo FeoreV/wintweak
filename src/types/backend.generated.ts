@@ -11,7 +11,15 @@ export type TweakState =
   | "requires_restart";
 export type SupportedWindows = "windows10" | "windows11";
 export type WindowsArchitecture = "x86_64" | "arm64";
-export type TweakCategory = "privacy" | "search" | "taskbar" | "explorer" | "appearance" | "input";
+export type TweakCategory =
+  | "ai"
+  | "developer"
+  | "privacy"
+  | "search"
+  | "taskbar"
+  | "explorer"
+  | "appearance"
+  | "input";
 export type TweakDesiredState = "enabled" | "disabled";
 export type ProviderKind =
   | "registry"
@@ -192,6 +200,38 @@ export type RestoreSessionReport = {
   restored_entry_count: number;
   skipped_pending_entry_count: number;
 };
+export type AppxSafety =
+  | "reviewed_optional"
+  | "protected_framework"
+  | "protected_resource"
+  | "protected_system"
+  | "unreviewed";
+export type AppxPackage = {
+  name: string;
+  full_name: string;
+  publisher_id: string;
+  version: string;
+  architecture: string;
+  is_framework: boolean;
+  is_resource: boolean;
+  safety: AppxSafety;
+};
+export type AppxRemovalPreview = {
+  package: AppxPackage;
+  can_remove: boolean;
+  restore_blocked: boolean;
+  explanation: string;
+  references: string[];
+};
+export type SystemAudit = {
+  environment: EnvironmentCheck;
+  pending_restart: boolean;
+  pending_restart_reasons: string[];
+  tweak_statuses: TweakStatus[];
+  recovery_session_count: number;
+  appx_package_count: number;
+  package_providers: AppProviderStatus[];
+};
 export type AppPackageManager = "winget" | "choco";
 export type AppDefinition = {
   id: string;
@@ -221,6 +261,8 @@ export type AppInstallReport = {
   requested_count: number;
   choco_bootstrapped: boolean;
   results: AppInstallItemResult[];
+  restore_blocked: boolean;
+  restore_explanation: string;
 };
 export type ChocolateyBootstrapRequest = { acknowledged_remote_script: boolean };
 export type AppOperationKind = "install" | "update" | "bootstrap_chocolatey";

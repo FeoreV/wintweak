@@ -3,14 +3,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ReviewDialog } from "./components/ReviewDialog";
 import { TweakerWorkspace } from "./components/TweakerWorkspace";
-import { bridge } from "./lib/bridge";
+import { bridge, isTauri } from "./lib/bridge";
 import { readStorageValue, toggleId, writeStorageValue } from "./lib/storage";
 import { APPLY_OPERATION_TIMEOUT_MS, waitForApplyOperation } from "./lib/waitForApplyOperation";
 import type {
   AppInstallReport,
   ApplyOperationStatus,
   AppPackageManager,
+  AppxPackage,
+  AppxRemovalPreview,
   ProfileDefinition,
+  SystemAudit,
   TweakBatchConfig,
   UserGoal,
 } from "./types/backend.generated";
@@ -29,6 +32,8 @@ const QUERY_KEYS = {
   recoveries: ["recoveries"],
   profiles: ["profiles"],
   statuses: ["statuses"],
+  appx: ["appx"],
+  audit: ["audit"],
 } as const;
 
 function initialDarkMode(): boolean {
@@ -104,6 +109,21 @@ export default function App() {
   const appProviders = useQuery({
     queryKey: QUERY_KEYS.appProviders,
     queryFn: bridge.appProviders,
+  });
+  const appx = useQuery<AppxPackage[]>({
+    queryKey: QUERY_KEYS.appx,
+    queryFn: bridge.appxPackages,
+    enabled: isTauri(),
+    retry: false,
+  });
+  const audit = useQuery<SystemAudit>({
+    queryKey: QUERY_KEYS.audit,
+    queryFn: bridge.systemAudit,
+    enabled: isTauri(),
+    retry: false,
+  });
+  const appxPreview = useMutation<AppxRemovalPreview, Error, string>({
+    mutationFn: bridge.previewAppxRemoval,
   });
   const installApps = useMutation({
     mutationFn: async () => {
@@ -256,7 +276,33 @@ export default function App() {
     if (goals.length > 0) void advisor.refetch();
     void apps.refetch();
     void appProviders.refetch();
-  }, [advisor, appProviders, apps, catalog, goals.length, profiles, recoveries, statuses]);
+    if (isTauri()) {
+      void audit.refetch();
+      void appx.refetch();
+    }
+  }, [
+    advisor,
+    appProviders,
+    apps,
+    appx,
+    audit,
+    catalog,
+    goals.length,
+    profiles,
+    recoveries,
+    statuses,
+  ]);
+
+  const lastDataUpdatedAt = Math.max(
+    catalog.dataUpdatedAt,
+    statuses.dataUpdatedAt,
+    advisor.dataUpdatedAt,
+    recoveries.dataUpdatedAt,
+    apps.dataUpdatedAt,
+    appProviders.dataUpdatedAt,
+    audit.dataUpdatedAt,
+    appx.dataUpdatedAt,
+  );
 
   const toggleAppSelection = useCallback(
     (id: string) => setSelectedApps((ids) => toggleId(ids, id)),
@@ -288,6 +334,17 @@ export default function App() {
         onRetry={retry}
         apps={apps.data ?? []}
         appProviders={appProviders.data ?? []}
+        appxPackages={appx.data ?? []}
+        appxPreview={appxPreview.data}
+        appxLoading={appx.isLoading}
+        onPreviewAppx={(fullName) => appxPreview.mutate(fullName)}
+        systemAudit={audit.data}
+        systemAuditLoading={audit.isLoading}
+        systemAuditError={audit.isError}
+        nativeAuditAvailable={isTauri()}
+        advisorLoading={advisor.isLoading}
+        advisorError={advisor.isError}
+        lastDataUpdatedAt={lastDataUpdatedAt}
         selectedApps={selectedApps}
         appManager={appManager}
         appInstalling={installApps.isPending || bootstrapChocolatey.isPending}
