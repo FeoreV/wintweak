@@ -138,20 +138,71 @@ pub struct AppOperationStatus {
 #[serde(deny_unknown_fields)]
 pub struct TweakRequest {
     pub id: String,
+    pub desired_state: TweakDesiredState,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
 #[serde(deny_unknown_fields)]
 pub struct TweakDefinition {
     pub id: String,
-    pub label: String,
-    pub description: String,
-    pub category: String,
+    pub title: LocalizedText,
+    pub description: LocalizedText,
+    pub category: TweakCategory,
     pub goals: Vec<UserGoal>,
     pub risk: TweakRisk,
-    pub requires_restart: bool,
+    pub support: WindowsSupport,
+    pub architectures: Vec<WindowsArchitecture>,
+    pub requires_admin: bool,
+    pub affected_paths: Vec<AffectedPath>,
+    pub detect: Vec<RegistryAction>,
+    pub apply: Vec<RegistryAction>,
+    pub restore: Vec<RegistryAction>,
     pub references: Vec<String>,
-    pub actions: Vec<RegistryAction>,
+    pub restart_requirement: RestartRequirement,
+    pub reversible: bool,
+    pub irreversible_reason: Option<LocalizedText>,
+    pub warnings: Vec<LocalizedText>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct LocalizedText {
+    pub en: String,
+    pub ru: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum TweakCategory {
+    Privacy,
+    Search,
+    Taskbar,
+    Explorer,
+    Appearance,
+    Input,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct WindowsSupport {
+    pub versions: Vec<SupportedWindows>,
+    pub minimum_build: u32,
+    pub maximum_build: Option<u32>,
+    pub notes: LocalizedText,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SupportedWindows {
+    Windows10,
+    Windows11,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum WindowsArchitecture {
+    X86_64,
+    Arm64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize, Type)]
@@ -162,12 +213,54 @@ pub enum UserGoal {
     ReduceDistractions,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum TweakRisk {
     Low,
     Moderate,
     High,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum TweakDesiredState {
+    Enabled,
+    Disabled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderKind {
+    Registry,
+    Appx,
+    Service,
+    ScheduledTask,
+    WindowsFeature,
+    Winget,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationKind {
+    Detect,
+    Apply,
+    Restore,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RestartRequirement {
+    None,
+    ExplorerRestart,
+    Logoff,
+    Reboot,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct AffectedPath {
+    pub provider: ProviderKind,
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
@@ -179,7 +272,7 @@ pub struct RegistryAction {
     pub value: RegistryValue,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum RegistryHive {
     CurrentUser,
@@ -197,10 +290,32 @@ pub enum RegistryValue {
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
 #[serde(deny_unknown_fields)]
+pub struct RegistryRecoveryData {
+    pub action: RegistryAction,
+    pub previous: RegistryValue,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderOperationResult {
+    pub provider: ProviderKind,
+    pub operation_kind: OperationKind,
+    pub pre_state: RegistryValue,
+    pub post_state: RegistryValue,
+    pub explanation: String,
+    pub recovery_data: RegistryRecoveryData,
+    pub warnings: Vec<String>,
+    pub restart_requirement: RestartRequirement,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
 pub struct ApplyBatchReport {
     pub session_id: Option<String>,
     pub applied_tweaks: Vec<String>,
     pub committed_change_count: u32,
+    pub restart_requirement: RestartRequirement,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
@@ -279,26 +394,45 @@ pub struct ValidationReport {
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
 #[serde(deny_unknown_fields)]
 pub struct BatchPlan {
+    pub environment: EnvironmentCheck,
     pub tweaks: Vec<PlannedTweak>,
     pub change_count: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
 #[serde(deny_unknown_fields)]
+pub struct EnvironmentCheck {
+    pub windows: SupportedWindows,
+    pub build: u32,
+    pub architecture: String,
+    pub is_admin: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
 pub struct PlannedTweak {
     pub id: String,
+    pub desired_state: TweakDesiredState,
     pub changes: Vec<PlannedRegistryChange>,
+    pub warnings: Vec<String>,
+    pub restart_requirement: RestartRequirement,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
 #[serde(deny_unknown_fields)]
 pub struct PlannedRegistryChange {
+    pub provider: ProviderKind,
+    pub operation_kind: OperationKind,
     pub hive: RegistryHive,
     pub key_path: String,
     pub value_name: String,
     pub current: RegistryValue,
     pub target: RegistryValue,
     pub required: bool,
+    pub explanation: String,
+    pub recovery_data: RegistryRecoveryData,
+    pub warnings: Vec<String>,
+    pub restart_requirement: RestartRequirement,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
@@ -306,6 +440,7 @@ pub struct PlannedRegistryChange {
 pub struct TweakStatus {
     pub id: String,
     pub state: TweakState,
+    pub restart_requirement: RestartRequirement,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
@@ -341,9 +476,46 @@ pub enum RecommendationDisposition {
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum TweakState {
-    Applied,
-    NotApplied,
+    Enabled,
+    Disabled,
     Mixed,
+    Unsupported,
+    Unknown,
+    RequiresRestart,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfileName {
+    Privacy,
+    Balanced,
+    Performance,
+    Developer,
+    Minimal,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileDefinition {
+    pub name: ProfileName,
+    pub title: LocalizedText,
+    pub description: LocalizedText,
+    pub tweaks: Vec<ProfileTweak>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileTweak {
+    pub id: String,
+    pub desired_state: TweakDesiredState,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileDocument {
+    pub schema_version: u32,
+    pub name: String,
+    pub tweaks: Vec<ProfileTweak>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]

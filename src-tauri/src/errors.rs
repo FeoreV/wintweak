@@ -33,6 +33,8 @@ pub enum AppError {
     ExternalProcessFailed { message: String },
     #[error("this operation requires Windows")]
     UnsupportedPlatform,
+    #[error("unsupported environment: {reason}")]
+    UnsupportedEnvironment { reason: String },
     #[error("Tauri failed: {message}")]
     Tauri { message: String },
     #[error("TypeScript type export failed: {message}")]

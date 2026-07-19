@@ -2,7 +2,27 @@
 
 export type UserGoal = "privacy" | "development" | "reduce_distractions";
 export type TweakRisk = "low" | "moderate" | "high";
-export type TweakState = "applied" | "not_applied" | "mixed";
+export type TweakState =
+  | "enabled"
+  | "disabled"
+  | "mixed"
+  | "unsupported"
+  | "unknown"
+  | "requires_restart";
+export type SupportedWindows = "windows10" | "windows11";
+export type WindowsArchitecture = "x86_64" | "arm64";
+export type TweakCategory = "privacy" | "search" | "taskbar" | "explorer" | "appearance" | "input";
+export type TweakDesiredState = "enabled" | "disabled";
+export type ProviderKind =
+  | "registry"
+  | "appx"
+  | "service"
+  | "scheduled_task"
+  | "windows_feature"
+  | "winget";
+export type OperationKind = "detect" | "apply" | "restore";
+export type RestartRequirement = "none" | "explorer_restart" | "logoff" | "reboot";
+export type ProfileName = "privacy" | "balanced" | "performance" | "developer" | "minimal";
 export type RegistryHive = "current_user" | "local_machine";
 export type RecommendationDisposition =
   | "recommended"
@@ -23,20 +43,41 @@ export type RegistryAction = {
   value_name: string;
   value: RegistryValue;
 };
+export type LocalizedText = { en: string; ru: string };
+export type WindowsSupport = {
+  versions: SupportedWindows[];
+  minimum_build: number;
+  maximum_build?: number;
+  notes: LocalizedText;
+};
+export type AffectedPath = { provider: ProviderKind; path: string };
 
 export type TweakDefinition = {
   id: string;
-  label: string;
-  description: string;
-  category: string;
+  category: TweakCategory;
+  title: LocalizedText;
+  description: LocalizedText;
   goals: UserGoal[];
   risk: TweakRisk;
-  requires_restart: boolean;
+  support: WindowsSupport;
+  architectures: WindowsArchitecture[];
+  requires_admin: boolean;
+  detect: RegistryAction[];
+  apply: RegistryAction[];
+  restore: RegistryAction[];
+  affected_paths: AffectedPath[];
   references: string[];
-  actions: RegistryAction[];
+  restart_requirement: RestartRequirement;
+  reversible: boolean;
+  irreversible_reason?: LocalizedText;
+  warnings: LocalizedText[];
 };
 
-export type TweakStatus = { id: string; state: TweakState };
+export type TweakStatus = {
+  id: string;
+  state: TweakState;
+  restart_requirement: RestartRequirement;
+};
 export type AdvisorRequest = { goals: UserGoal[] };
 export type TweakRecommendation = {
   tweak_id: string;
@@ -44,21 +85,57 @@ export type TweakRecommendation = {
   matched_goals: UserGoal[];
 };
 export type AdvisorReport = { recommendations: TweakRecommendation[] };
-export type TweakBatchConfig = { schema_version: number; tweaks: { id: string }[] };
+export type TweakBatchConfig = {
+  schema_version: number;
+  tweaks: { id: string; desired_state: TweakDesiredState }[];
+};
+export type RegistryRecoveryData = { action: RegistryAction; previous: RegistryValue };
 export type PlannedRegistryChange = {
   hive: RegistryHive;
+  provider: ProviderKind;
+  operation_kind: OperationKind;
   key_path: string;
   value_name: string;
   current: RegistryValue;
   target: RegistryValue;
   required: boolean;
+  explanation: string;
+  recovery_data: RegistryRecoveryData;
+  warnings: string[];
+  restart_requirement: RestartRequirement;
 };
-export type PlannedTweak = { id: string; changes: PlannedRegistryChange[] };
-export type BatchPlan = { tweaks: PlannedTweak[]; change_count: number };
+export type PlannedTweak = {
+  id: string;
+  desired_state: TweakDesiredState;
+  changes: PlannedRegistryChange[];
+  warnings: string[];
+  restart_requirement: RestartRequirement;
+};
+export type EnvironmentCheck = {
+  windows: SupportedWindows;
+  build: number;
+  architecture: string;
+  is_admin: boolean;
+};
+export type BatchPlan = {
+  environment: EnvironmentCheck;
+  tweaks: PlannedTweak[];
+  change_count: number;
+};
+export type ProfileTweak = { id: string; desired_state: TweakDesiredState };
+export type ProfileDefinition = {
+  name: ProfileName;
+  title: LocalizedText;
+  description: LocalizedText;
+  tweaks: ProfileTweak[];
+};
+export type ProfileDocument = { schema_version: number; name: string; tweaks: ProfileTweak[] };
 export type ApplyBatchReport = {
   session_id?: string;
   applied_tweaks: string[];
   committed_change_count: number;
+  restart_requirement: RestartRequirement;
+  warnings: string[];
 };
 export type ApplyOperationHandle = { task_id: string };
 export type ApplyOperationPhase = "queued" | "running" | "completed" | "cancelled" | "failed";

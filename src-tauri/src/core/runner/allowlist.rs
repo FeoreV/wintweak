@@ -48,6 +48,10 @@ impl ManagedOperation {
 
 /// Executes a reviewed operation without accepting caller-provided executables or arguments.
 /// Output is truncated before it crosses the core/IPC boundary.
+/// Executes only the closed, typed operation variants declared in this module.
+///
+/// # Errors
+/// Returns a structured process or allow-list error; caller-provided executables are impossible.
 pub fn execute(operation: &ManagedOperation) -> Result<String, AppError> {
     operation
         .validate()

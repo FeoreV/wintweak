@@ -9,18 +9,24 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
+    time::{Duration, Instant},
 };
 
 use uuid::Uuid;
 
 use crate::{
-    core::validator,
+    core::{
+        environment,
+        provider::{OperationContext, Provider, RegistryProvider},
+        validator,
+    },
     errors::AppError,
     types::{
         ApplyBatchReport, ApplyOperationEvent, ApplyOperationHandle, ApplyOperationPhase,
-        ApplyOperationStatus, BatchPlan, PlannedRegistryChange, PlannedTweak,
-        RecoverySessionSummary, RegistryAction, RegistryValue, RestoreSessionReport,
-        TweakBatchConfig, TweakDefinition, TweakState, TweakStatus,
+        ApplyOperationStatus, BatchPlan, EnvironmentCheck, OperationKind, PlannedRegistryChange,
+        PlannedTweak, RecoverySessionSummary, RegistryAction, RegistryValue, RestartRequirement,
+        RestoreSessionReport, TweakBatchConfig, TweakDefinition, TweakDesiredState, TweakState,
+        TweakStatus,
     },
     winapi_safe::WindowsRegistry,
 };
@@ -44,7 +50,8 @@ pub trait RegistryBackend {
 
 /// Applies catalog tweaks through a registry backend and durable recovery store.
 pub struct TweakEngine<B> {
-    registry: B,
+    provider: RegistryProvider<B>,
+    environment: EnvironmentCheck,
     recovery_directory: std::path::PathBuf,
     recovery: Option<RecoveryStore>,
 }
@@ -58,12 +65,23 @@ struct ApplyTask {
     report: Arc<Mutex<Option<ApplyBatchReport>>>,
     error: Arc<Mutex<Option<String>>>,
     phase: Arc<Mutex<ApplyOperationPhase>>,
+    finished_at: Arc<Mutex<Option<Instant>>>,
 }
 
 static APPLY_TASKS: OnceLock<Mutex<HashMap<Uuid, ApplyTask>>> = OnceLock::new();
+const APPLY_TASK_RETENTION: Duration = Duration::from_secs(10 * 60);
 
 fn apply_tasks() -> &'static Mutex<HashMap<Uuid, ApplyTask>> {
     APPLY_TASKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn prune_expired_apply_tasks(tasks: &mut HashMap<Uuid, ApplyTask>) {
+    tasks.retain(|_, task| {
+        task.finished_at
+            .lock()
+            .expect("apply task completion lock poisoned")
+            .is_none_or(|finished_at| finished_at.elapsed() < APPLY_TASK_RETENTION)
+    });
 }
 
 enum ApplyOutcome {
@@ -98,11 +116,12 @@ pub fn start_apply_batch(
         report: Arc::new(Mutex::new(None)),
         error: Arc::new(Mutex::new(None)),
         phase: Arc::new(Mutex::new(ApplyOperationPhase::Queued)),
+        finished_at: Arc::new(Mutex::new(None)),
     };
-    apply_tasks()
-        .lock()
-        .expect("apply task map lock poisoned")
-        .insert(id, task.clone());
+    let mut tasks = apply_tasks().lock().expect("apply task map lock poisoned");
+    prune_expired_apply_tasks(&mut tasks);
+    tasks.insert(id, task.clone());
+    drop(tasks);
     thread::spawn(move || {
         let mut engine = engine;
         run_apply_task(&mut engine, &config, &catalog, plan.change_count, &task);
@@ -197,6 +216,10 @@ fn run_apply_task(
     };
     *task.report.lock().expect("apply task report lock poisoned") = Some(execution.report);
     *task.phase.lock().expect("apply task phase lock poisoned") = phase;
+    *task
+        .finished_at
+        .lock()
+        .expect("apply task completion lock poisoned") = Some(Instant::now());
 }
 
 impl WindowsTweakEngine {
@@ -206,7 +229,8 @@ impl WindowsTweakEngine {
     /// Returns an error when the recovery directory cannot be resolved.
     pub fn new() -> Result<Self, AppError> {
         Ok(Self {
-            registry: WindowsRegistry::new(),
+            provider: RegistryProvider::new(WindowsRegistry::new()),
+            environment: environment::current()?,
             recovery_directory: RecoveryStore::current_user_directory()?,
             recovery: None,
         })
@@ -218,10 +242,21 @@ impl<B: RegistryBackend> TweakEngine<B> {
     fn with_parts(registry: B, recovery: RecoveryStore) -> Self {
         let recovery_directory = recovery.directory().to_owned();
         Self {
-            registry,
+            provider: RegistryProvider::new(registry),
+            environment: EnvironmentCheck {
+                windows: crate::types::SupportedWindows::Windows11,
+                build: 26_100,
+                architecture: "x86_64".to_owned(),
+                is_admin: true,
+            },
             recovery_directory,
             recovery: Some(recovery),
         }
+    }
+
+    #[cfg(test)]
+    fn set_test_environment(&mut self, environment: EnvironmentCheck) {
+        self.environment = environment;
     }
 
     /// Builds a read-only execution plan after validating the whole batch.
@@ -239,7 +274,8 @@ impl<B: RegistryBackend> TweakEngine<B> {
         let mut change_count = 0_u32;
         for request in &config.tweaks {
             let definition = find_tweak(&by_id, &request.id)?;
-            let changes = self.plan_tweak(definition)?;
+            environment::validate(definition, &self.environment)?;
+            let changes = self.plan_tweak(definition, request.desired_state)?;
             let required_count = changes.iter().filter(|change| change.required).count();
             let required_count =
                 u32::try_from(required_count).map_err(|_| AppError::InvalidConfigSchema {
@@ -252,10 +288,14 @@ impl<B: RegistryBackend> TweakEngine<B> {
             })?;
             tweaks.push(PlannedTweak {
                 id: request.id.clone(),
+                desired_state: request.desired_state,
                 changes,
+                warnings: localized_warnings(definition),
+                restart_requirement: definition.restart_requirement,
             });
         }
         Ok(BatchPlan {
+            environment: self.environment.clone(),
             tweaks,
             change_count,
         })
@@ -270,8 +310,10 @@ impl<B: RegistryBackend> TweakEngine<B> {
         config: &TweakBatchConfig,
         catalog: &[TweakDefinition],
     ) -> Result<ApplyBatchReport, AppError> {
+        let plan = self.plan_batch(config, catalog)?;
         let cancelled = AtomicBool::new(false);
-        let execution = self.apply_batch_controlled(config, catalog, 0, &cancelled, &drop);
+        let execution =
+            self.apply_batch_controlled(config, catalog, plan.change_count, &cancelled, &drop);
         match execution.outcome {
             ApplyOutcome::Completed => Ok(execution.report),
             ApplyOutcome::Cancelled => unreachable!("synchronous apply cannot be cancelled"),
@@ -301,13 +343,24 @@ impl<B: RegistryBackend> TweakEngine<B> {
         for entry in source.entries().iter().rev() {
             let mut restore_action = entry.action.clone();
             restore_action.value = entry.previous.clone();
-            let current = self.registry.read(&restore_action)?;
+            let current = self.provider.read(&restore_action)?;
             if !entry.is_completed() && current != entry.action.value {
                 skipped_pending_entry_count += 1;
                 continue;
             }
-            let recovery_index = self.recovery_mut()?.begin_entry(&restore_action, current)?;
-            self.registry.write(&restore_action)?;
+            let recovery_index = self
+                .recovery_mut()?
+                .begin_entry(&restore_action, current.clone())?;
+            self.provider.execute(
+                &restore_action,
+                current,
+                &OperationContext {
+                    kind: OperationKind::Restore,
+                    explanation: "Restore the exact pre-session registry state",
+                    warnings: &[],
+                    restart_requirement: RestartRequirement::None,
+                },
+            )?;
             self.recovery_mut()?.complete_entry(recovery_index)?;
             restored_entry_count += 1;
         }
@@ -330,24 +383,40 @@ impl<B: RegistryBackend> TweakEngine<B> {
     fn plan_tweak(
         &self,
         definition: &TweakDefinition,
+        desired_state: TweakDesiredState,
     ) -> Result<Vec<PlannedRegistryChange>, AppError> {
-        definition
-            .actions
+        let (operation_kind, operations) = selected_operations(definition, desired_state);
+        let explanation = operation_explanation(definition, desired_state);
+        let warnings = localized_warnings(definition);
+        let context = OperationContext {
+            kind: operation_kind,
+            explanation: &explanation,
+            warnings: &warnings,
+            restart_requirement: definition.restart_requirement,
+        };
+        operations
             .iter()
             .map(|action| {
-                let current = self.registry.read(action)?;
+                let result = self.provider.inspect(action, &context)?;
                 Ok(PlannedRegistryChange {
+                    provider: result.provider,
+                    operation_kind: result.operation_kind,
                     hive: action.hive,
                     key_path: action.key_path.clone(),
                     value_name: action.value_name.clone(),
-                    required: current != action.value,
-                    current,
+                    required: result.pre_state != action.value,
+                    current: result.pre_state,
                     target: action.value.clone(),
+                    explanation: result.explanation,
+                    recovery_data: result.recovery_data,
+                    warnings: result.warnings,
+                    restart_requirement: result.restart_requirement,
                 })
             })
             .collect()
     }
 
+    #[allow(clippy::too_many_lines)]
     fn apply_batch_controlled(
         &mut self,
         config: &TweakBatchConfig,
@@ -357,20 +426,60 @@ impl<B: RegistryBackend> TweakEngine<B> {
         emit: &dyn Fn(ApplyOperationEvent),
     ) -> ApplyExecution {
         if let Err(error) = validator::validate_batch(config, catalog) {
-            return self.failed_execution(error, Vec::new(), 0, emit);
+            return self.failed_execution(
+                error,
+                Vec::new(),
+                0,
+                RestartRequirement::None,
+                Vec::new(),
+                emit,
+            );
+        }
+        let by_id = catalog_by_id(catalog);
+        for request in &config.tweaks {
+            let definition = match find_tweak(&by_id, &request.id) {
+                Ok(definition) => definition,
+                Err(error) => {
+                    return self.failed_execution(
+                        error,
+                        Vec::new(),
+                        0,
+                        RestartRequirement::None,
+                        Vec::new(),
+                        emit,
+                    );
+                }
+            };
+            if let Err(error) = environment::validate(definition, &self.environment) {
+                return self.failed_execution(
+                    error,
+                    Vec::new(),
+                    0,
+                    RestartRequirement::None,
+                    Vec::new(),
+                    emit,
+                );
+            }
         }
         let total_tweaks = u32::try_from(config.tweaks.len()).unwrap_or(u32::MAX);
         emit(ApplyOperationEvent::BatchStarted {
             total_tweaks,
             total_changes,
         });
-        let by_id = catalog_by_id(catalog);
         let mut applied_tweaks = Vec::with_capacity(config.tweaks.len());
         let mut committed_change_count = 0_u32;
+        let mut restart_requirement = RestartRequirement::None;
+        let mut warnings = Vec::new();
 
         for (tweak_index, request) in config.tweaks.iter().enumerate() {
             if cancelled.load(Ordering::Acquire) {
-                return self.cancelled_execution(applied_tweaks, committed_change_count, emit);
+                return self.cancelled_execution(
+                    applied_tweaks,
+                    committed_change_count,
+                    restart_requirement,
+                    warnings,
+                    emit,
+                );
             }
             let definition = match find_tweak(&by_id, &request.id) {
                 Ok(definition) => definition,
@@ -379,6 +488,8 @@ impl<B: RegistryBackend> TweakEngine<B> {
                         error,
                         applied_tweaks,
                         committed_change_count,
+                        restart_requirement,
+                        warnings,
                         emit,
                     );
                 }
@@ -391,16 +502,39 @@ impl<B: RegistryBackend> TweakEngine<B> {
             let span = tracing::info_span!("apply_tweak", tweak_id = %definition.id);
             let _guard = span.enter();
 
-            for (change_index, action) in definition.actions.iter().enumerate() {
+            let (operation_kind, operations) =
+                selected_operations(definition, request.desired_state);
+            let explanation = operation_explanation(definition, request.desired_state);
+            let tweak_warnings = localized_warnings(definition);
+            let context = OperationContext {
+                kind: operation_kind,
+                explanation: &explanation,
+                warnings: &tweak_warnings,
+                restart_requirement: definition.restart_requirement,
+            };
+            for (change_index, action) in operations.iter().enumerate() {
                 if cancelled.load(Ordering::Acquire) {
-                    return self.cancelled_execution(applied_tweaks, committed_change_count, emit);
+                    return self.cancelled_execution(
+                        applied_tweaks,
+                        committed_change_count,
+                        restart_requirement,
+                        warnings,
+                        emit,
+                    );
                 }
-                let result = self.apply_action(action);
+                let result = self.apply_action(action, &context);
                 match result {
                     Ok(false) => {
                         tracing::debug!(outcome = "unchanged", "registry action already satisfied");
                     }
                     Ok(true) => {
+                        restart_requirement =
+                            restart_requirement.max(definition.restart_requirement);
+                        for warning in &tweak_warnings {
+                            if !warnings.contains(warning) {
+                                warnings.push(warning.clone());
+                            }
+                        }
                         committed_change_count = committed_change_count.saturating_add(1);
                         emit(ApplyOperationEvent::ChangeCommitted {
                             tweak_id: request.id.clone(),
@@ -414,6 +548,8 @@ impl<B: RegistryBackend> TweakEngine<B> {
                             error,
                             applied_tweaks,
                             committed_change_count,
+                            restart_requirement,
+                            warnings,
                             emit,
                         );
                     }
@@ -428,7 +564,12 @@ impl<B: RegistryBackend> TweakEngine<B> {
             });
         }
 
-        let report = self.apply_report(applied_tweaks, committed_change_count);
+        let report = self.apply_report(
+            applied_tweaks,
+            committed_change_count,
+            restart_requirement,
+            warnings,
+        );
         emit(ApplyOperationEvent::BatchCompleted {
             completed_tweak_count: u32::try_from(report.applied_tweaks.len()).unwrap_or(u32::MAX),
             committed_change_count,
@@ -440,13 +581,17 @@ impl<B: RegistryBackend> TweakEngine<B> {
         }
     }
 
-    fn apply_action(&mut self, action: &RegistryAction) -> Result<bool, AppError> {
-        let previous = self.registry.read(action)?;
+    fn apply_action(
+        &mut self,
+        action: &RegistryAction,
+        context: &OperationContext<'_>,
+    ) -> Result<bool, AppError> {
+        let previous = self.provider.read(action)?;
         if previous == action.value {
             return Ok(false);
         }
-        let recovery_index = self.recovery_mut()?.begin_entry(action, previous)?;
-        self.registry.write(action)?;
+        let recovery_index = self.recovery_mut()?.begin_entry(action, previous.clone())?;
+        self.provider.execute(action, previous, context)?;
         self.recovery_mut()?.complete_entry(recovery_index)?;
         Ok(true)
     }
@@ -455,9 +600,16 @@ impl<B: RegistryBackend> TweakEngine<B> {
         &self,
         applied_tweaks: Vec<String>,
         committed_change_count: u32,
+        restart_requirement: RestartRequirement,
+        warnings: Vec<String>,
         emit: &dyn Fn(ApplyOperationEvent),
     ) -> ApplyExecution {
-        let report = self.apply_report(applied_tweaks, committed_change_count);
+        let report = self.apply_report(
+            applied_tweaks,
+            committed_change_count,
+            restart_requirement,
+            warnings,
+        );
         emit(ApplyOperationEvent::Cancelled {
             completed_tweak_count: u32::try_from(report.applied_tweaks.len()).unwrap_or(u32::MAX),
             committed_change_count,
@@ -474,9 +626,16 @@ impl<B: RegistryBackend> TweakEngine<B> {
         error: AppError,
         applied_tweaks: Vec<String>,
         committed_change_count: u32,
+        restart_requirement: RestartRequirement,
+        warnings: Vec<String>,
         emit: &dyn Fn(ApplyOperationEvent),
     ) -> ApplyExecution {
-        let report = self.apply_report(applied_tweaks, committed_change_count);
+        let report = self.apply_report(
+            applied_tweaks,
+            committed_change_count,
+            restart_requirement,
+            warnings,
+        );
         emit(ApplyOperationEvent::Failed {
             message: error.to_string(),
             completed_tweak_count: u32::try_from(report.applied_tweaks.len()).unwrap_or(u32::MAX),
@@ -493,6 +652,8 @@ impl<B: RegistryBackend> TweakEngine<B> {
         &self,
         applied_tweaks: Vec<String>,
         committed_change_count: u32,
+        restart_requirement: RestartRequirement,
+        warnings: Vec<String>,
     ) -> ApplyBatchReport {
         ApplyBatchReport {
             session_id: self
@@ -502,26 +663,55 @@ impl<B: RegistryBackend> TweakEngine<B> {
                 .map(|recovery| recovery.session_id().to_string()),
             applied_tweaks,
             committed_change_count,
+            restart_requirement,
+            warnings,
         }
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn tweak_status(&self, definition: &TweakDefinition) -> Result<TweakStatus, AppError> {
-        let mut matching = 0_usize;
-        for action in &definition.actions {
-            if self.registry.read(action)? == action.value {
-                matching += 1;
+        if environment::validate_support(definition, &self.environment).is_err() {
+            return Ok(TweakStatus {
+                id: definition.id.clone(),
+                state: TweakState::Unsupported,
+                restart_requirement: definition.restart_requirement,
+            });
+        }
+        let mut enabled_count = 0_usize;
+        let mut disabled_count = 0_usize;
+        for action in &definition.detect {
+            match self.provider.read(action) {
+                Ok(current) if current == action.value => enabled_count += 1,
+                Ok(current)
+                    if matching_restore_action(definition, action)
+                        .is_some_and(|restore| current == restore.value) =>
+                {
+                    disabled_count += 1;
+                }
+                Ok(_) | Err(_) => {
+                    return Ok(TweakStatus {
+                        id: definition.id.clone(),
+                        state: TweakState::Unknown,
+                        restart_requirement: definition.restart_requirement,
+                    });
+                }
             }
         }
-        let state = if matching == definition.actions.len() {
-            TweakState::Applied
-        } else if matching == 0 {
-            TweakState::NotApplied
+        let state = if enabled_count == definition.detect.len() {
+            if definition.restart_requirement == RestartRequirement::None {
+                TweakState::Enabled
+            } else {
+                TweakState::RequiresRestart
+            }
+        } else if disabled_count == definition.detect.len() {
+            TweakState::Disabled
         } else {
             TweakState::Mixed
         };
         Ok(TweakStatus {
             id: definition.id.clone(),
             state,
+            restart_requirement: definition.restart_requirement,
         })
     }
 
@@ -535,6 +725,45 @@ impl<B: RegistryBackend> TweakEngine<B> {
                 message: "recovery store could not be initialized".to_owned(),
             })
     }
+}
+
+fn selected_operations(
+    definition: &TweakDefinition,
+    desired_state: TweakDesiredState,
+) -> (OperationKind, &[RegistryAction]) {
+    match desired_state {
+        TweakDesiredState::Enabled => (OperationKind::Apply, &definition.apply),
+        TweakDesiredState::Disabled => (OperationKind::Restore, &definition.restore),
+    }
+}
+
+fn operation_explanation(definition: &TweakDefinition, desired_state: TweakDesiredState) -> String {
+    match desired_state {
+        TweakDesiredState::Enabled => definition.description.en.clone(),
+        TweakDesiredState::Disabled => format!(
+            "Return '{}' to its reviewed catalog default; session undo still preserves the exact pre-state.",
+            definition.title.en
+        ),
+    }
+}
+
+fn localized_warnings(definition: &TweakDefinition) -> Vec<String> {
+    definition
+        .warnings
+        .iter()
+        .map(|warning| warning.en.clone())
+        .collect()
+}
+
+fn matching_restore_action<'a>(
+    definition: &'a TweakDefinition,
+    detect: &RegistryAction,
+) -> Option<&'a RegistryAction> {
+    definition.restore.iter().find(|restore| {
+        restore.hive == detect.hive
+            && restore.key_path.eq_ignore_ascii_case(&detect.key_path)
+            && restore.value_name.eq_ignore_ascii_case(&detect.value_name)
+    })
 }
 
 fn catalog_by_id(catalog: &[TweakDefinition]) -> HashMap<&str, &TweakDefinition> {

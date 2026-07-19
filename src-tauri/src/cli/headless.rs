@@ -4,9 +4,9 @@ use std::{fs, path::Path, process::ExitCode};
 
 use crate::{
     cli::HeadlessMode,
-    core::{registry::WindowsTweakEngine, registry_data},
+    core::{profiles, registry::WindowsTweakEngine, registry_data},
     errors::AppError,
-    types::TweakBatchConfig,
+    types::{ProfileDocument, TweakBatchConfig},
 };
 
 pub fn run_headless(mode: HeadlessMode) -> ExitCode {
@@ -37,27 +37,92 @@ fn execute(mode: HeadlessMode) -> Result<(), AppError> {
         HeadlessMode::ListTweaks => list_tweaks(),
         HeadlessMode::Status => show_status(),
         HeadlessMode::ListRecovery => list_recovery(),
+        HeadlessMode::Profile {
+            profile,
+            dry_run,
+            apply,
+        } => {
+            require_profile_action(dry_run, apply)?;
+            let catalog = registry_data::built_in_catalog()?;
+            run_batch(
+                &profiles::plan(profile.into(), &catalog)?,
+                &catalog,
+                dry_run,
+            )
+        }
+        HeadlessMode::ExportProfile { profile, path } => {
+            let document = profiles::export_document(profile.into())?;
+            let json = serde_json::to_string_pretty(&document).map_err(|error| {
+                AppError::InvalidConfigSchema {
+                    message: error.to_string(),
+                }
+            })?;
+            fs::write(&path, json).map_err(|error| AppError::io(path.display().to_string(), &error))
+        }
+        HeadlessMode::ImportProfile {
+            path,
+            dry_run,
+            apply,
+        } => {
+            require_profile_action(dry_run, apply)?;
+            let catalog = registry_data::built_in_catalog()?;
+            let document: ProfileDocument = serde_json::from_str(
+                &fs::read_to_string(&path)
+                    .map_err(|error| AppError::io(path.display().to_string(), &error))?,
+            )
+            .map_err(|error| AppError::InvalidConfigSchema {
+                message: error.to_string(),
+            })?;
+            run_batch(
+                &profiles::document_to_batch(&document, &catalog)?,
+                &catalog,
+                dry_run,
+            )
+        }
     }
+}
+
+fn require_profile_action(dry_run: bool, apply: bool) -> Result<(), AppError> {
+    if dry_run == apply {
+        return Err(AppError::InvalidConfigSchema {
+            message: "profile execution requires exactly one of --dry-run or --apply".to_owned(),
+        });
+    }
+    Ok(())
 }
 
 fn apply(config_path: &Path, dry_run: bool) -> Result<(), AppError> {
     let config = load_config(config_path)?;
     let catalog = registry_data::built_in_catalog()?;
+    run_batch(&config, &catalog, dry_run)
+}
+
+fn run_batch(
+    config: &TweakBatchConfig,
+    catalog: &[crate::types::TweakDefinition],
+    dry_run: bool,
+) -> Result<(), AppError> {
     let mut engine = WindowsTweakEngine::new()?;
     if dry_run {
-        let plan = engine.plan_batch(&config, &catalog)?;
+        let plan = engine.plan_batch(config, catalog)?;
         tracing::info!(
+            windows = ?plan.environment.windows,
+            build = plan.environment.build,
+            architecture = %plan.environment.architecture,
+            admin = plan.environment.is_admin,
             tweak_count = plan.tweaks.len(),
             change_count = plan.change_count,
             outcome = "planned",
             "dry run completed without mutation"
         );
         for tweak in plan.tweaks {
-            tracing::info!(tweak_id = %tweak.id, changes = tweak.changes.len(), "planned tweak");
+            for change in tweak.changes {
+                tracing::info!(tweak_id = %tweak.id, hive = ?change.hive, key_path = %change.key_path, value_name = %change.value_name, current = ?change.current, target = ?change.target, required = change.required, explanation = %change.explanation, "planned registry change");
+            }
         }
         return Ok(());
     }
-    let report = engine.apply_batch(&config, &catalog)?;
+    let report = engine.apply_batch(config, catalog)?;
     tracing::info!(
         session_id = ?report.session_id,
         applied_count = report.applied_tweaks.len(),
@@ -79,10 +144,11 @@ fn list_tweaks() -> Result<(), AppError> {
     for tweak in registry_data::built_in_catalog()? {
         tracing::info!(
             tweak_id = %tweak.id,
-            category = %tweak.category,
+            category = ?tweak.category,
             risk = ?tweak.risk,
-            restart = tweak.requires_restart,
-            label = %tweak.label,
+            restart = ?tweak.restart_requirement,
+            admin = tweak.requires_admin,
+            title = %tweak.title.en,
             "available tweak"
         );
     }

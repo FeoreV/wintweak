@@ -1,4 +1,4 @@
-# WinTweak AI
+# WinTweak
 
 A Windows 10/11 desktop utility for reviewing, applying, and restoring selected system tweaks. Every change is validated before execution, shown to the user before approval, and recorded for recovery.
 
@@ -8,7 +8,8 @@ A Windows 10/11 desktop utility for reviewing, applying, and restoring selected 
 
 - Rust core shared by the Tauri GUI and headless CLI.
 - Typed plan, apply, status, recovery, and restore operations.
-- Four documented registry tweaks with durable recovery records.
+- Ten reversible Microsoft-documented registry tweaks with durable recovery records.
+- Typed provider catalog, five exact profiles, environment-gated dry-run, progress, and restore history.
 - Local, deterministic recommendations for privacy, development, and distraction reduction.
 - English and Russian interface with light, dark, and reduced-motion support.
 - Reviewed application-installation allow-list for Winget and Chocolatey.
@@ -52,9 +53,21 @@ cargo test --all-targets --locked
 optimizer.exe --list-tweaks
 optimizer.exe --status
 optimizer.exe --config data\example.batch.json --dry-run
+optimizer.exe --profile privacy --dry-run
+optimizer.exe --profile balanced --apply
+optimizer.exe --profile developer --export-profile developer.json
+optimizer.exe --import-profile developer.json --dry-run
 optimizer.exe --list-recovery
 optimizer.exe --restore <SESSION_ID>
 ```
+
+Imported profiles are strict JSON containing catalog IDs and explicit `enabled`/`disabled` desired states. They cannot contain executables, arguments, scripts, URLs, or registry paths. Applying any profile compiles it to the same exact plan/review/apply/recovery pipeline as a manual selection.
+
+## Safety and attribution
+
+The catalog uses Microsoft documentation as the normative source. Public MIT projects including Win11Debloat and ChrisTitusTech/winutil informed product-level catalog and workflow ideas; no source code or prose was copied. GPL/AGPL implementations, arbitrary PowerShell, caller-provided shell commands, component removal, Windows Update/Defender disabling, and irreversible debloat are intentionally excluded.
+
+The higher-impact entries are `reduce_diagnostic_data`, `disable_activity_history`, and `disable_widgets` (moderate risk); they change machine policy and may require a reboot, logoff, or Explorer restart. Taskbar alignment is Windows 11-only. Mouse acceleration changes pointer feel. Every committed registry write snapshots the exact previous value before mutation.
 
 ## Documentation
 

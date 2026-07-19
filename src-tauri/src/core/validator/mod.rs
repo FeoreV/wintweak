@@ -62,6 +62,7 @@ mod tests {
             schema_version: 1,
             tweaks: vec![TweakRequest {
                 id: "missing".to_owned(),
+                desired_state: crate::types::TweakDesiredState::Enabled,
             }],
         };
 

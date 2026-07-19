@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "tweaks": [
-    { "id": "enable_long_paths" },
-    { "id": "disable_advertising_id" },
-    { "id": "disable_consumer_features" },
-    { "id": "reduce_diagnostic_data" }
+    { "id": "show_file_extensions", "desired_state": "enabled" },
+    { "id": "disable_advertising_id", "desired_state": "enabled" },
+    { "id": "disable_activity_history", "desired_state": "enabled" },
+    { "id": "reduce_diagnostic_data", "desired_state": "enabled" }
   ]
 }

@@ -31,7 +31,7 @@ pub fn advise(
             let state = states
                 .get(tweak.id.as_str())
                 .copied()
-                .unwrap_or(TweakState::NotApplied);
+                .unwrap_or(TweakState::Unknown);
             let disposition = disposition(state, tweak.risk, matched_goals.is_empty());
 
             TweakRecommendation {
@@ -51,32 +51,62 @@ fn disposition(
     has_no_matching_goal: bool,
 ) -> RecommendationDisposition {
     match state {
-        TweakState::Applied => RecommendationDisposition::AlreadyApplied,
+        TweakState::Enabled | TweakState::RequiresRestart => {
+            RecommendationDisposition::AlreadyApplied
+        }
         TweakState::Mixed => RecommendationDisposition::Mixed,
-        TweakState::NotApplied if has_no_matching_goal => RecommendationDisposition::NotRelevant,
-        TweakState::NotApplied if matches!(risk, TweakRisk::Low) => {
+        TweakState::Disabled if has_no_matching_goal => RecommendationDisposition::NotRelevant,
+        TweakState::Disabled if matches!(risk, TweakRisk::Low) => {
             RecommendationDisposition::Recommended
         }
-        TweakState::NotApplied => RecommendationDisposition::ReviewRequired,
+        TweakState::Disabled | TweakState::Unsupported | TweakState::Unknown => {
+            RecommendationDisposition::ReviewRequired
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{RegistryAction, UserGoal};
+    use crate::types::{
+        LocalizedText, RestartRequirement, TweakCategory, UserGoal, WindowsArchitecture,
+        WindowsSupport,
+    };
 
     fn tweak(id: &str, risk: TweakRisk, goals: Vec<UserGoal>) -> TweakDefinition {
         TweakDefinition {
             id: id.to_owned(),
-            label: id.to_owned(),
-            description: id.to_owned(),
-            category: "test".to_owned(),
+            category: TweakCategory::Privacy,
+            title: LocalizedText {
+                en: id.to_owned(),
+                ru: id.to_owned(),
+            },
+            description: LocalizedText {
+                en: id.to_owned(),
+                ru: id.to_owned(),
+            },
             goals,
             risk,
-            requires_restart: false,
+            support: WindowsSupport {
+                versions: vec![crate::types::SupportedWindows::Windows11],
+                minimum_build: 22_000,
+                maximum_build: None,
+                notes: LocalizedText {
+                    en: "test".to_owned(),
+                    ru: "test".to_owned(),
+                },
+            },
+            architectures: vec![WindowsArchitecture::X86_64],
+            requires_admin: false,
+            restart_requirement: RestartRequirement::None,
+            detect: Vec::new(),
+            apply: Vec::new(),
+            restore: Vec::new(),
+            affected_paths: Vec::new(),
             references: Vec::new(),
-            actions: Vec::<RegistryAction>::new(),
+            reversible: true,
+            irreversible_reason: None,
+            warnings: Vec::new(),
         }
     }
 
@@ -91,7 +121,8 @@ mod tests {
             .iter()
             .map(|item| TweakStatus {
                 id: item.id.clone(),
-                state: TweakState::NotApplied,
+                state: TweakState::Disabled,
+                restart_requirement: RestartRequirement::None,
             })
             .collect::<Vec<_>>();
 
@@ -122,7 +153,8 @@ mod tests {
         let catalog = vec![tweak("privacy", TweakRisk::Low, vec![UserGoal::Privacy])];
         let statuses = vec![TweakStatus {
             id: "privacy".to_owned(),
-            state: TweakState::Applied,
+            state: TweakState::Enabled,
+            restart_requirement: RestartRequirement::None,
         }];
 
         let report = advise(

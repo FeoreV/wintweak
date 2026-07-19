@@ -8,6 +8,10 @@ The process parses CLI arguments first. Supplying `--config` enters the headless
 - `src-tauri/src/cli/` owns clap parsing and headless orchestration, delegating all rules to `core`.
 - `src-tauri/src/types.rs` is the DTO source of truth; Specta exports its TypeScript mirror in debug GUI builds.
 
+`TweakDefinition` is the strict catalog contract: localized title/description, category/risk, Windows build and architecture support, elevation requirement, typed detect/apply/restore operations, affected paths, restart metadata, warnings, and Microsoft references. `Provider` separates typed provider operations from orchestration; `RegistryProvider` is the first implementation, while Appx, Service, Scheduled Task, Windows Feature, and Winget remain closed future provider kinds.
+
+Profiles contain only known tweak IDs plus an explicit enabled/disabled desired state. Built-in and imported profiles compile into `TweakBatchConfig`; manual selections use the same DTO. Planning performs Windows version/build, architecture, and administrator checks before reading or mutating a target. Unsupported definitions report `unsupported` in inventory and are rejected in plan/apply. Provider execution remains inside `TweakEngine`: it records a pending snapshot, executes the typed provider operation, verifies the postcondition, and marks the entry complete.
+
 Every batch is completely deserialized and validated before an engine is created. For every registry action, the current value is read and durably appended to a per-session recovery document before the new value is written. Snapshot entries transition from `pending` to `completed` only after the registry backend reports success.
 
 Recovery replay accepts a session UUID rather than a caller-provided path, opens it inside the configured recovery directory, and replays completed entries in reverse order. A pending entry is replayed only when the live registry value equals its intended target, which reconciles a crash between the registry write and the durable completion marker. Every restore mutation creates its own recovery session, so a restore can itself be reversed.

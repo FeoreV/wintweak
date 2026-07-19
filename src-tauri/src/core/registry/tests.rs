@@ -6,7 +6,10 @@ use std::{
 };
 
 use super::*;
-use crate::types::{RegistryHive, TweakRequest, TweakRisk};
+use crate::types::{
+    AffectedPath, LocalizedText, ProviderKind, RegistryHive, RestartRequirement, TweakCategory,
+    TweakDesiredState, TweakRequest, TweakRisk, WindowsArchitecture, WindowsSupport,
+};
 
 #[derive(Clone, Default)]
 struct MockRegistry {
@@ -276,9 +279,12 @@ fn cancelling_a_completed_task_does_not_change_its_phase() {
             session_id: None,
             applied_tweaks: Vec::new(),
             committed_change_count: 0,
+            restart_requirement: RestartRequirement::None,
+            warnings: Vec::new(),
         }))),
         error: Arc::new(Mutex::new(None)),
         phase: Arc::new(Mutex::new(ApplyOperationPhase::Completed)),
+        finished_at: Arc::new(Mutex::new(Some(Instant::now()))),
     };
     apply_tasks()
         .lock()
@@ -289,6 +295,35 @@ fn cancelling_a_completed_task_does_not_change_its_phase() {
     let status = apply_operation_status(task_id).expect("completed task status");
 
     assert_eq!(status.phase, ApplyOperationPhase::Completed);
+}
+
+#[test]
+fn expired_completed_tasks_are_pruned_without_removing_recent_tasks() {
+    let expired_id = Uuid::new_v4();
+    let recent_id = Uuid::new_v4();
+    let task = |finished_at| ApplyTask {
+        cancelled: Arc::new(AtomicBool::new(false)),
+        events: Arc::new(Mutex::new(Vec::new())),
+        report: Arc::new(Mutex::new(None)),
+        error: Arc::new(Mutex::new(None)),
+        phase: Arc::new(Mutex::new(ApplyOperationPhase::Completed)),
+        finished_at: Arc::new(Mutex::new(Some(finished_at))),
+    };
+    let mut tasks = apply_tasks().lock().expect("apply task map lock");
+    tasks.insert(
+        expired_id,
+        task(
+            Instant::now()
+                .checked_sub(APPLY_TASK_RETENTION + Duration::from_secs(1))
+                .expect("retention interval must fit"),
+        ),
+    );
+    tasks.insert(recent_id, task(Instant::now()));
+
+    prune_expired_apply_tasks(&mut tasks);
+
+    assert!(!tasks.contains_key(&expired_id));
+    assert!(tasks.remove(&recent_id).is_some());
 }
 
 #[test]
@@ -396,6 +431,7 @@ fn test_config() -> TweakBatchConfig {
         schema_version: 1,
         tweaks: vec![TweakRequest {
             id: "test_tweak".to_owned(),
+            desired_state: TweakDesiredState::Enabled,
         }],
     }
 }
@@ -403,14 +439,40 @@ fn test_config() -> TweakBatchConfig {
 fn test_definition(values: Vec<RegistryValue>) -> TweakDefinition {
     TweakDefinition {
         id: "test_tweak".to_owned(),
-        label: "Test".to_owned(),
-        description: "Test".to_owned(),
-        category: "test".to_owned(),
+        title: LocalizedText {
+            en: "Test".to_owned(),
+            ru: "Test".to_owned(),
+        },
+        description: LocalizedText {
+            en: "Test".to_owned(),
+            ru: "Test".to_owned(),
+        },
+        category: TweakCategory::Privacy,
         goals: Vec::new(),
         risk: TweakRisk::Low,
-        requires_restart: false,
         references: Vec::new(),
-        actions: values.into_iter().map(test_action).collect(),
+        support: WindowsSupport {
+            versions: vec![crate::types::SupportedWindows::Windows11],
+            minimum_build: 22_000,
+            maximum_build: None,
+            notes: LocalizedText {
+                en: "Test".to_owned(),
+                ru: "Test".to_owned(),
+            },
+        },
+        architectures: vec![WindowsArchitecture::X86_64],
+        requires_admin: false,
+        detect: values.iter().cloned().map(test_action).collect(),
+        apply: values.into_iter().map(test_action).collect(),
+        restore: vec![test_action(RegistryValue::Missing)],
+        affected_paths: vec![AffectedPath {
+            provider: ProviderKind::Registry,
+            path: "HKCU\\test".to_owned(),
+        }],
+        restart_requirement: RestartRequirement::None,
+        reversible: true,
+        irreversible_reason: None,
+        warnings: Vec::new(),
     }
 }
 
@@ -421,6 +483,31 @@ fn test_action(value: RegistryValue) -> RegistryAction {
         value_name: "Value".to_owned(),
         value,
     }
+}
+
+#[test]
+fn unsupported_windows_is_refused_before_registry_reads() {
+    let temp = test_directory();
+    let registry = MockRegistry::default();
+    let calls = Rc::clone(&registry.calls);
+    let mut engine = TweakEngine::with_parts(
+        registry,
+        RecoveryStore::at(temp).expect("test recovery store"),
+    );
+    engine.set_test_environment(crate::types::EnvironmentCheck {
+        windows: crate::types::SupportedWindows::Windows10,
+        build: 19_045,
+        architecture: "x86_64".to_owned(),
+        is_admin: true,
+    });
+    let mut definition = test_definition(vec![RegistryValue::Dword(1)]);
+    definition.support.versions = vec![crate::types::SupportedWindows::Windows11];
+
+    assert!(matches!(
+        engine.plan_batch(&test_config(), &[definition]),
+        Err(AppError::UnsupportedEnvironment { .. })
+    ));
+    assert!(calls.borrow().is_empty());
 }
 
 const fn event_kind(event: &ApplyOperationEvent) -> &'static str {

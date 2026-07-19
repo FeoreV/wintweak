@@ -42,6 +42,7 @@ import type {
   AppInstallReport,
   AppPackageManager,
   AppProviderStatus,
+  ProfileDefinition,
   RecommendationDisposition,
   RecoverySessionSummary,
   TweakDefinition,
@@ -49,9 +50,8 @@ import type {
   UserGoal,
 } from "../types/backend.generated";
 
-type View = "overview" | "apps" | "tweaks" | "activity";
-type Filter = "all" | "recommended" | "applied";
-type TweakCategory = "all" | "privacy" | "context_menu" | "interface" | "system" | "optimization";
+type ProductArea = "understand" | "choose" | "store" | "recover" | "settings";
+type Filter = "all" | "recommended" | TweakStatus["state"];
 
 type TweakerWorkspaceProps = {
   dark: boolean;
@@ -59,14 +59,20 @@ type TweakerWorkspaceProps = {
   statuses: TweakStatus[];
   advisor?: AdvisorReport;
   recoveries: RecoverySessionSummary[];
+  profiles: ProfileDefinition[];
   goals: UserGoal[];
   selectedIds: Set<string>;
   loading: boolean;
   error: boolean;
   onThemeChange: () => void;
+  onRestoreSession: (sessionId: string) => void;
+  recoveryRestoring: boolean;
+  recoveryRestoreError: boolean;
+  restoredSessionId?: string;
   onGoalsChange: (goals: UserGoal[]) => void;
   onToggle: (id: string) => void;
   onReview: () => void;
+  onPreviewProfile: (profile: ProfileDefinition) => void;
   onRetry: () => void;
   apps: AppDefinition[];
   appProviders: AppProviderStatus[];
@@ -111,14 +117,20 @@ export function TweakerWorkspace({
   statuses,
   advisor,
   recoveries,
+  profiles,
   goals: selectedGoals,
   selectedIds,
   loading,
   error,
   onThemeChange,
+  onRestoreSession,
+  recoveryRestoring,
+  recoveryRestoreError,
+  restoredSessionId,
   onGoalsChange,
   onToggle,
   onReview,
+  onPreviewProfile,
   onRetry,
   apps,
   appProviders,
@@ -141,9 +153,10 @@ export function TweakerWorkspace({
   onRefreshProviders,
 }: TweakerWorkspaceProps) {
   const { t, i18n } = useTranslation();
-  const [view, setView] = useState<View>("overview");
+  const [view, setView] = useState<ProductArea>("understand");
   const [filter, setFilter] = useState<Filter>("all");
-  const [category, setCategory] = useState<TweakCategory>("all");
+  const [category, setCategory] = useState("all");
+  const [risk, setRisk] = useState<"all" | TweakDefinition["risk"]>("all");
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string>();
 
@@ -165,17 +178,21 @@ export function TweakerWorkspace({
         ),
     [advisor],
   );
-  const appliedCount = statuses.filter((status) => status.state === "applied").length;
-  const attentionCount = recommendations.filter((item) =>
-    ["recommended", "review_required", "mixed"].includes(item.disposition),
+  const appliedCount = statuses.filter((status) =>
+    ["enabled", "requires_restart"].includes(status.state),
   ).length;
-
+  const categories = useMemo(
+    () => [...new Set(catalog.map((tweak) => tweak.category))].sort(),
+    [catalog],
+  );
   const filteredCatalog = useMemo(() => {
     const term = search.trim().toLocaleLowerCase();
     return catalog.filter((tweak) => {
-      const label = t(`tweaks.${tweak.id}.label`, { defaultValue: tweak.label });
+      const label = t(`tweaks.${tweak.id}.label`, {
+        defaultValue: i18n.language.startsWith("ru") ? tweak.title.ru : tweak.title.en,
+      });
       const description = t(`tweaks.${tweak.id}.description`, {
-        defaultValue: tweak.description,
+        defaultValue: i18n.language.startsWith("ru") ? tweak.description.ru : tweak.description.en,
       });
       const matchesSearch =
         term.length === 0 ||
@@ -185,14 +202,15 @@ export function TweakerWorkspace({
       const disposition = dispositionById.get(tweak.id);
       const matchesFilter =
         filter === "all" ||
-        (filter === "applied" && state === "applied") ||
+        filter === state ||
         (filter === "recommended" &&
           disposition !== undefined &&
           ["recommended", "review_required", "mixed"].includes(disposition));
       const matchesCategory = category === "all" || tweak.category === category;
-      return matchesSearch && matchesFilter && matchesCategory;
+      const matchesRisk = risk === "all" || tweak.risk === risk;
+      return matchesSearch && matchesFilter && matchesCategory && matchesRisk;
     });
-  }, [catalog, category, dispositionById, filter, search, stateById, t]);
+  }, [catalog, category, dispositionById, filter, i18n.language, risk, search, stateById, t]);
 
   const changeLanguage = () => {
     const next = i18n.language.startsWith("ru") ? "en" : "ru";
@@ -210,14 +228,18 @@ export function TweakerWorkspace({
 
   const openAllTweaks = (nextFilter: Filter = "all") => {
     setFilter(nextFilter);
-    setView("tweaks");
+    setView("choose");
   };
 
-  const headerCopy: Record<View, { title: string; subtitle: string }> = {
-    overview: { title: t("workspace.overview.title"), subtitle: t("workspace.overview.subtitle") },
-    apps: { title: t("workspace.apps.title"), subtitle: t("workspace.apps.subtitle") },
-    tweaks: { title: t("workspace.tweaks.title"), subtitle: t("workspace.tweaks.subtitle") },
-    activity: { title: t("workspace.activity.title"), subtitle: t("workspace.activity.subtitle") },
+  const headerCopy: Record<ProductArea, { title: string; subtitle: string }> = {
+    understand: {
+      title: t("workspace.understand.title"),
+      subtitle: t("workspace.understand.subtitle"),
+    },
+    choose: { title: t("workspace.choose.title"), subtitle: t("workspace.choose.subtitle") },
+    store: { title: t("workspace.apps.title"), subtitle: t("workspace.apps.subtitle") },
+    recover: { title: t("workspace.recover.title"), subtitle: t("workspace.recover.subtitle") },
+    settings: { title: t("workspace.settings.title"), subtitle: t("workspace.settings.subtitle") },
   };
   const { title, subtitle } = headerCopy[view];
 
@@ -227,63 +249,51 @@ export function TweakerWorkspace({
         {t("workspace.skip")}
       </a>
       <aside className="utility-rail" aria-label={t("workspace.navigation")}>
-        <div className="brand-mark" aria-label="WinTweak AI">
+        <div className="brand-mark" aria-label="WinTweak">
           <span>W</span>
-          <strong>WinTweak AI</strong>
+          <strong>WinTweak</strong>
         </div>
         <nav className="rail-nav">
           <RailItem
             icon={<HomeRegular />}
-            label={t("workspace.nav.overview")}
-            active={view === "overview"}
-            onClick={() => setView("overview")}
-          />
-          <RailItem
-            icon={<AppsRegular />}
-            label={t("workspace.nav.apps")}
-            active={view === "apps"}
-            onClick={() => setView("apps")}
+            label={t("workspace.nav.understand")}
+            active={view === "understand"}
+            onClick={() => setView("understand")}
           />
           <RailItem
             icon={<SettingsRegular />}
-            label={t("workspace.nav.tweaks")}
-            active={view === "tweaks"}
+            label={t("workspace.nav.choose")}
+            active={view === "choose"}
             onClick={() => openAllTweaks()}
           />
           <RailItem
+            icon={<AppsRegular />}
+            label={t("workspace.nav.store")}
+            active={view === "store"}
+            onClick={() => setView("store")}
+          />
+          <RailItem
             icon={<HistoryRegular />}
-            label={t("workspace.nav.activity")}
-            active={view === "activity"}
+            label={t("workspace.nav.recover")}
+            active={view === "recover"}
             badge={recoveries.length > 0 ? recoveries.length : undefined}
-            onClick={() => setView("activity")}
+            onClick={() => setView("recover")}
           />
         </nav>
         <div className="rail-actions">
-          <button
-            type="button"
-            className="rail-button"
-            aria-label={t("nav.language")}
-            title={t("nav.language")}
-            onClick={changeLanguage}
-          >
-            <LocalLanguageRegular />
-          </button>
-          <button
-            type="button"
-            className="rail-button"
-            aria-label={dark ? t("workspace.theme.light") : t("workspace.theme.dark")}
-            title={dark ? t("workspace.theme.light") : t("workspace.theme.dark")}
-            onClick={onThemeChange}
-          >
-            {dark ? <WeatherSunnyRegular /> : <WeatherMoonRegular />}
-          </button>
+          <RailItem
+            icon={<SettingsRegular />}
+            label={t("workspace.nav.settings")}
+            active={view === "settings"}
+            onClick={() => setView("settings")}
+          />
         </div>
       </aside>
 
       <main className="workspace" id="workspace-main">
         <header className="workspace-header workspace-enter">
           <div>
-            <div className="product-name">WinTweak AI</div>
+            <div className="product-name">WinTweak</div>
             <h1>{title}</h1>
             <p>{subtitle}</p>
           </div>
@@ -294,13 +304,9 @@ export function TweakerWorkspace({
               placeholder={t("workspace.commandSearch")}
               onChange={(_, data) => {
                 setSearch(data.value);
-                if (data.value) setView("tweaks");
+                if (data.value) setView("choose");
               }}
             />
-            <div className="header-status">
-              <span className="status-dot" />
-              {t("workspace.local")}
-            </div>
           </div>
         </header>
 
@@ -321,20 +327,14 @@ export function TweakerWorkspace({
             <div className="skeleton" />
             <div className="skeleton" />
           </section>
-        ) : view === "overview" ? (
-          <Overview
+        ) : view === "understand" ? (
+          <UnderstandWorkspace
             catalog={catalog}
             appliedCount={appliedCount}
-            attentionCount={attentionCount}
-            recommendations={recommendations}
-            stateById={stateById}
-            selectedIds={selectedIds}
-            selectedGoals={selectedGoals}
-            onToggle={onToggle}
-            onToggleGoal={toggleGoal}
+            recoveryCount={recoveries.length}
             onOpenAll={openAllTweaks}
           />
-        ) : view === "apps" ? (
+        ) : view === "store" ? (
           <ApplicationsWorkspace
             apps={apps}
             providers={appProviders}
@@ -356,150 +356,274 @@ export function TweakerWorkspace({
             onCancel={onCancelAppOperation}
             onRefreshProviders={onRefreshProviders}
           />
-        ) : view === "activity" ? (
-          <ActivityWorkspace recoveries={recoveries} />
+        ) : view === "recover" ? (
+          <RecoveryWorkspace
+            recoveries={recoveries}
+            restoring={recoveryRestoring}
+            restoreError={recoveryRestoreError}
+            restoredSessionId={restoredSessionId}
+            onRestore={onRestoreSession}
+          />
+        ) : view === "settings" ? (
+          <SettingsWorkspace
+            dark={dark}
+            language={i18n.language}
+            onThemeChange={onThemeChange}
+            onLanguageChange={changeLanguage}
+          />
         ) : (
-          <section className="catalog-workspace workspace-enter" aria-labelledby="tweak-list-title">
-            <div className="catalog-toolbar">
-              <div
-                className="category-tabs"
-                role="group"
-                aria-label={t("workspace.tweaks.categoryLabel")}
-              >
-                {(
-                  [
-                    "all",
-                    "privacy",
-                    "context_menu",
-                    "interface",
-                    "system",
-                    "optimization",
-                  ] as TweakCategory[]
-                ).map((item) => (
-                  <button
-                    type="button"
-                    key={item}
-                    data-active={category === item}
-                    onClick={() => setCategory(item)}
-                  >
-                    {t(`workspace.tweaks.categories.${item}`)}
-                  </button>
-                ))}
-              </div>
-              <Input
-                className="search-input"
-                contentBefore={<SearchRegular />}
-                placeholder={t("workspace.tweaks.search")}
-                value={search}
-                onChange={(_, data) => setSearch(data.value)}
-              />
-              <div
-                className="filter-tabs"
-                role="group"
-                aria-label={t("workspace.tweaks.filterLabel")}
-              >
-                {(["all", "recommended", "applied"] as Filter[]).map((item) => (
-                  <button
-                    type="button"
-                    key={item}
-                    data-active={filter === item}
-                    onClick={() => setFilter(item)}
-                  >
-                    {t(`workspace.tweaks.filters.${item}`)}
-                  </button>
-                ))}
-              </div>
-              <span className="result-count">
-                {t("workspace.tweaks.count", { count: filteredCatalog.length })}
-              </span>
-            </div>
-
-            <div className="tweak-table" id="tweak-list-title">
-              {filteredCatalog.length === 0 ? (
-                <div className="empty-state">
-                  <SearchRegular />
-                  <h2>{t("workspace.tweaks.emptyTitle")}</h2>
-                  <p>{t("workspace.tweaks.emptyBody")}</p>
-                  <Button
-                    appearance="subtle"
-                    onClick={() => {
-                      setSearch("");
-                      setFilter("all");
-                      setCategory("all");
-                    }}
-                  >
-                    {t("workspace.tweaks.reset")}
-                  </Button>
+          <div className="choose-workspace workspace-enter">
+            <GoalPicker selectedGoals={selectedGoals} onToggleGoal={toggleGoal} />
+            <section className="profile-preview" aria-label={t("workspace.profiles.title")}>
+              <div className="section-title-row">
+                <div>
+                  <h2>{t("workspace.profiles.title")}</h2>
+                  <p>{t("workspace.profiles.body")}</p>
                 </div>
-              ) : (
-                filteredCatalog.map((tweak) => {
-                  const state = stateById.get(tweak.id);
-                  const selected = selectedIds.has(tweak.id);
-                  const expanded = expandedId === tweak.id;
-                  return (
-                    <article
-                      className="tweak-item"
-                      data-selected={selected}
-                      data-expanded={expanded}
-                      key={tweak.id}
+              </div>
+              <div className="goal-strip">
+                {profiles.map((profile) => (
+                  <button
+                    type="button"
+                    key={profile.name}
+                    onClick={() => onPreviewProfile(profile)}
+                  >
+                    <SettingsRegular />
+                    <span>
+                      <strong>
+                        {i18n.language.startsWith("ru") ? profile.title.ru : profile.title.en}
+                      </strong>
+                      <small>
+                        {i18n.language.startsWith("ru")
+                          ? profile.description.ru
+                          : profile.description.en}{" "}
+                        · {t("workspace.profiles.count", { count: profile.tweaks.length })}
+                      </small>
+                    </span>
+                    <ArrowRightRegular />
+                  </button>
+                ))}
+              </div>
+            </section>
+            <RecommendationSummary
+              catalog={catalog}
+              recommendations={recommendations}
+              stateById={stateById}
+              selectedIds={selectedIds}
+              selectedGoals={selectedGoals}
+              onToggle={onToggle}
+            />
+            <section className="catalog-workspace" aria-label={t("workspace.tweaks.title")}>
+              <div className="catalog-toolbar">
+                <div
+                  className="category-tabs"
+                  role="group"
+                  aria-label={t("workspace.tweaks.categoryLabel")}
+                >
+                  {["all", ...categories].map((item) => (
+                    <button
+                      type="button"
+                      key={item}
+                      data-active={category === item}
+                      onClick={() => setCategory(item)}
                     >
-                      <div className="tweak-item__summary">
-                        <Checkbox
-                          checked={selected}
-                          disabled={state === "applied"}
-                          aria-label={t(`tweaks.${tweak.id}.label`, { defaultValue: tweak.label })}
-                          onChange={() => onToggle(tweak.id)}
-                        />
-                        <button
-                          type="button"
-                          className="tweak-item__toggle"
-                          aria-expanded={expanded}
-                          onClick={() => setExpandedId(expanded ? undefined : tweak.id)}
-                        >
-                          <span className="tweak-item__copy">
-                            <strong>
-                              {t(`tweaks.${tweak.id}.label`, { defaultValue: tweak.label })}
-                            </strong>
-                            <span>
-                              {t(`tweaks.${tweak.id}.description`, {
-                                defaultValue: tweak.description,
-                              })}
+                      {t(`workspace.tweaks.categories.${item}`)}
+                    </button>
+                  ))}
+                </div>
+                <Input
+                  className="search-input"
+                  contentBefore={<SearchRegular />}
+                  placeholder={t("workspace.tweaks.search")}
+                  value={search}
+                  onChange={(_, data) => setSearch(data.value)}
+                />
+                <select
+                  value={risk}
+                  onChange={(event) => setRisk(event.target.value as typeof risk)}
+                  aria-label={t("workspace.tweaks.riskLabel")}
+                >
+                  <option value="all">{t("workspace.tweaks.categories.all")}</option>
+                  {(["low", "moderate", "high"] as const).map((item) => (
+                    <option key={item} value={item}>
+                      {t(`risk.${item}`)}
+                    </option>
+                  ))}
+                </select>
+                <div
+                  className="filter-tabs"
+                  role="group"
+                  aria-label={t("workspace.tweaks.filterLabel")}
+                >
+                  {(
+                    [
+                      "all",
+                      "recommended",
+                      "enabled",
+                      "disabled",
+                      "mixed",
+                      "unsupported",
+                      "unknown",
+                      "requires_restart",
+                    ] as Filter[]
+                  ).map((item) => (
+                    <button
+                      type="button"
+                      key={item}
+                      data-active={filter === item}
+                      onClick={() => setFilter(item)}
+                    >
+                      {t(`workspace.tweaks.filters.${item}`)}
+                    </button>
+                  ))}
+                </div>
+                <span className="result-count">
+                  {t("workspace.tweaks.count", { count: filteredCatalog.length })}
+                </span>
+              </div>
+
+              <div className="tweak-table">
+                {filteredCatalog.length === 0 ? (
+                  <div className="empty-state">
+                    <SearchRegular />
+                    <h2>{t("workspace.tweaks.emptyTitle")}</h2>
+                    <p>{t("workspace.tweaks.emptyBody")}</p>
+                    <Button
+                      appearance="subtle"
+                      onClick={() => {
+                        setSearch("");
+                        setFilter("all");
+                        setCategory("all");
+                        setRisk("all");
+                      }}
+                    >
+                      {t("workspace.tweaks.reset")}
+                    </Button>
+                  </div>
+                ) : (
+                  filteredCatalog.map((tweak) => {
+                    const state = stateById.get(tweak.id);
+                    const selected = selectedIds.has(tweak.id);
+                    const expanded = expandedId === tweak.id;
+                    return (
+                      <article
+                        className="tweak-item"
+                        data-selected={selected}
+                        data-expanded={expanded}
+                        key={tweak.id}
+                      >
+                        <div className="tweak-item__summary">
+                          <Checkbox
+                            checked={selected}
+                            disabled={
+                              state === "enabled" ||
+                              state === "requires_restart" ||
+                              state === "unsupported" ||
+                              state === "unknown"
+                            }
+                            aria-label={t(`tweaks.${tweak.id}.label`, {
+                              defaultValue: i18n.language.startsWith("ru")
+                                ? tweak.title.ru
+                                : tweak.title.en,
+                            })}
+                            onChange={() => onToggle(tweak.id)}
+                          />
+                          <button
+                            type="button"
+                            className="tweak-item__toggle"
+                            aria-expanded={expanded}
+                            onClick={() => setExpandedId(expanded ? undefined : tweak.id)}
+                          >
+                            <span className="tweak-item__copy">
+                              <strong>
+                                {t(`tweaks.${tweak.id}.label`, {
+                                  defaultValue: i18n.language.startsWith("ru")
+                                    ? tweak.title.ru
+                                    : tweak.title.en,
+                                })}
+                              </strong>
+                              <span>
+                                {t(`tweaks.${tweak.id}.description`, {
+                                  defaultValue: i18n.language.startsWith("ru")
+                                    ? tweak.description.ru
+                                    : tweak.description.en,
+                                })}
+                              </span>
                             </span>
-                          </span>
-                          <span className="tweak-item__meta">
-                            <RiskLabel risk={tweak.risk} />
-                            <StateLabel state={state} />
-                            <ChevronDownRegular className="expand-icon" />
-                          </span>
-                        </button>
-                      </div>
-                      {expanded ? (
-                        <div className="tweak-details">
-                          <div>
-                            <span>{t("workspace.tweaks.target")}</span>
-                            <code>
-                              {tweak.actions[0]?.hive}\\{tweak.actions[0]?.key_path}
-                            </code>
-                          </div>
-                          <div>
-                            <span>{t("workspace.tweaks.restart")}</span>
-                            <strong>
-                              {t(tweak.requires_restart ? "catalog.restart" : "catalog.noRestart")}
-                            </strong>
-                          </div>
-                          {tweak.references[0] ? (
-                            <Link href={tweak.references[0]} target="_blank" rel="noreferrer">
-                              {t("catalog.source")} <ArrowUpRightRegular />
-                            </Link>
-                          ) : null}
+                            <span className="tweak-item__meta">
+                              <RiskLabel risk={tweak.risk} />
+                              <StateLabel state={state} />
+                              <ChevronDownRegular className="expand-icon" />
+                            </span>
+                          </button>
                         </div>
-                      ) : null}
-                    </article>
-                  );
-                })
-              )}
-            </div>
-          </section>
+                        {expanded ? (
+                          <div className="tweak-details">
+                            <div>
+                              <span>{t("workspace.tweaks.target")}</span>
+                              <code>
+                                {tweak.apply[0]?.hive}\\{tweak.apply[0]?.key_path}
+                              </code>
+                            </div>
+                            <div>
+                              <span>{t("workspace.tweaks.restart")}</span>
+                              <strong>
+                                {t(
+                                  tweak.restart_requirement !== "none"
+                                    ? "catalog.restart"
+                                    : "catalog.noRestart",
+                                )}
+                              </strong>
+                            </div>
+                            <div>
+                              <span>{t("workspace.tweaks.support")}</span>
+                              <strong>
+                                {i18n.language.startsWith("ru")
+                                  ? tweak.support.notes.ru
+                                  : tweak.support.notes.en}
+                              </strong>
+                            </div>
+                            <div>
+                              <span>{t("workspace.tweaks.scope")}</span>
+                              <strong>
+                                {tweak.requires_admin
+                                  ? t("workspace.tweaks.administrator")
+                                  : t("workspace.tweaks.currentUser")}
+                              </strong>
+                            </div>
+                            <div className="tweak-details__paths">
+                              <span>{t("workspace.tweaks.affectedPaths")}</span>
+                              {tweak.affected_paths.map((affected) => (
+                                <code key={`${affected.provider}-${affected.path}`}>
+                                  {affected.path}
+                                </code>
+                              ))}
+                            </div>
+                            {tweak.warnings.length > 0 ? (
+                              <MessageBar intent="warning">
+                                <MessageBarBody>
+                                  {tweak.warnings
+                                    .map((warning) =>
+                                      i18n.language.startsWith("ru") ? warning.ru : warning.en,
+                                    )
+                                    .join(" ")}
+                                </MessageBarBody>
+                              </MessageBar>
+                            ) : null}
+                            {tweak.references[0] ? (
+                              <Link href={tweak.references[0]} target="_blank" rel="noreferrer">
+                                {t("catalog.source")} <ArrowUpRightRegular />
+                              </Link>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </article>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          </div>
         )}
       </main>
 
@@ -518,165 +642,184 @@ export function TweakerWorkspace({
   );
 }
 
-type OverviewProps = {
+type UnderstandWorkspaceProps = {
   catalog: TweakDefinition[];
   appliedCount: number;
-  attentionCount: number;
+  recoveryCount: number;
+  onOpenAll: (filter?: Filter) => void;
+};
+
+function UnderstandWorkspace({
+  catalog,
+  appliedCount,
+  recoveryCount,
+  onOpenAll,
+}: UnderstandWorkspaceProps) {
+  const { t } = useTranslation();
+  return (
+    <section className="understand-workspace workspace-enter" aria-labelledby="understand-title">
+      <div className="understand-intro">
+        <span className="eyebrow">{t("workspace.understand.eyebrow")}</span>
+        <h2 id="understand-title">{t("workspace.understand.statement")}</h2>
+        <p>{t("workspace.understand.body")}</p>
+        <Button
+          appearance="primary"
+          icon={<ArrowRightRegular />}
+          iconPosition="after"
+          onClick={() => onOpenAll()}
+        >
+          {t("workspace.understand.choose")}
+        </Button>
+      </div>
+
+      <dl className="state-ledger" aria-label={t("workspace.understand.currentState")}>
+        <div>
+          <dt>{t("workspace.understand.available")}</dt>
+          <dd>{t("workspace.understand.availableValue", { count: catalog.length })}</dd>
+        </div>
+        <div>
+          <dt>{t("workspace.understand.applied")}</dt>
+          <dd>{t("workspace.understand.appliedValue", { count: appliedCount })}</dd>
+        </div>
+        <div>
+          <dt>{t("workspace.understand.recovery")}</dt>
+          <dd>{t("workspace.understand.recoveryValue", { count: recoveryCount })}</dd>
+        </div>
+      </dl>
+
+      <div className="workflow-explainer">
+        <div>
+          <span className="eyebrow">{t("workspace.understand.processLabel")}</span>
+          <h3>{t("workspace.understand.processTitle")}</h3>
+        </div>
+        <ol>
+          {(["understand", "choose", "review", "apply", "recover"] as const).map((step, index) => (
+            <li key={step}>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <div>
+                <strong>{t(`workspace.flow.${step}.title`)}</strong>
+                <p>{t(`workspace.flow.${step}.body`)}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </section>
+  );
+}
+
+type GoalPickerProps = {
+  selectedGoals: UserGoal[];
+  onToggleGoal: (goal: UserGoal) => void;
+};
+
+function GoalPicker({ selectedGoals, onToggleGoal }: GoalPickerProps) {
+  const { t } = useTranslation();
+  return (
+    <section className="goal-section" aria-labelledby="goal-heading">
+      <div className="section-title-row">
+        <div>
+          <h2 id="goal-heading">{t("workspace.goals.title")}</h2>
+          <p>{t("workspace.goals.body")}</p>
+        </div>
+      </div>
+      <div className="goal-strip">
+        {goals.map((goal) => {
+          const Icon = goalIcons[goal];
+          const active = selectedGoals.includes(goal);
+          return (
+            <button
+              type="button"
+              key={goal}
+              data-active={active}
+              aria-pressed={active}
+              onClick={() => onToggleGoal(goal)}
+            >
+              <Icon />
+              <span>
+                <strong>{t(`goals.${goal}.title`)}</strong>
+                <small>{t(`goals.${goal}.body`)}</small>
+              </span>
+              {active ? <CheckmarkCircleRegular className="goal-check" /> : null}
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+type RecommendationSummaryProps = {
+  catalog: TweakDefinition[];
   recommendations: NonNullable<AdvisorReport["recommendations"]>;
   stateById: Map<string, TweakStatus["state"]>;
   selectedIds: Set<string>;
   selectedGoals: UserGoal[];
   onToggle: (id: string) => void;
-  onToggleGoal: (goal: UserGoal) => void;
-  onOpenAll: (filter?: Filter) => void;
 };
 
-function Overview({
+function RecommendationSummary({
   catalog,
-  appliedCount,
-  attentionCount,
   recommendations,
   stateById,
   selectedIds,
   selectedGoals,
   onToggle,
-  onToggleGoal,
-  onOpenAll,
-}: OverviewProps) {
+}: RecommendationSummaryProps) {
   const { t } = useTranslation();
-  const coverage = catalog.length === 0 ? 0 : Math.round((appliedCount / catalog.length) * 100);
-
   return (
-    <>
-      <section className="overview-grid grid-flow-dense workspace-enter">
-        <article className="health-panel">
-          <div className="health-panel__top">
-            <div>
-              <span>{t("workspace.overview.health")}</span>
-              <h2>{t("workspace.overview.healthValue")}</h2>
-            </div>
-            <div
-              className="score-ring"
-              style={{ "--score": `${coverage}%` } as React.CSSProperties}
-            >
-              <span>{coverage}%</span>
-            </div>
-          </div>
-          <p>{t("workspace.overview.healthBody")}</p>
-          <button type="button" className="text-action" onClick={() => onOpenAll("recommended")}>
-            {t("workspace.overview.inspect")} <ArrowRightRegular />
-          </button>
-        </article>
-        <button type="button" className="metric-panel" onClick={() => onOpenAll("applied")}>
-          <CheckmarkCircleRegular />
-          <span>{t("workspace.overview.active")}</span>
-          <strong>{appliedCount}</strong>
-          <small>{t("workspace.overview.ofTotal", { total: catalog.length })}</small>
-        </button>
-        <button type="button" className="metric-panel" onClick={() => onOpenAll("recommended")}>
-          <WarningRegular />
-          <span>{t("workspace.overview.attention")}</span>
-          <strong>{attentionCount}</strong>
-          <small>{t("workspace.overview.readyToReview")}</small>
-        </button>
-      </section>
-
-      <section className="goal-section workspace-enter" aria-labelledby="goal-heading">
-        <div className="section-title-row">
-          <div>
-            <h2 id="goal-heading">{t("workspace.goals.title")}</h2>
-            <p>{t("workspace.goals.body")}</p>
-          </div>
-          <span>{t("workspace.goals.local")}</span>
+    <section className="recommendations-section" aria-labelledby="recommendations-title">
+      <div className="section-title-row">
+        <div>
+          <h2 id="recommendations-title">{t("workspace.recommendations.title")}</h2>
+          <p>{t("workspace.recommendations.body")}</p>
         </div>
-        <div className="goal-strip">
-          {goals.map((goal) => {
-            const Icon = goalIcons[goal];
-            const active = selectedGoals.includes(goal);
+      </div>
+      {selectedGoals.length === 0 ? (
+        <div className="recommendation-empty">
+          <ShieldLockRegular />
+          <div>
+            <h3>{t("workspace.recommendations.emptyTitle")}</h3>
+            <p>{t("workspace.recommendations.emptyBody")}</p>
+          </div>
+        </div>
+      ) : (
+        <div className="recommendation-list">
+          {recommendations.slice(0, 4).map((recommendation) => {
+            const tweak = catalog.find((item) => item.id === recommendation.tweak_id);
+            if (!tweak) return null;
+            const applied = ["enabled", "requires_restart"].includes(stateById.get(tweak.id) ?? "");
             return (
-              <button
-                type="button"
-                key={goal}
-                data-active={active}
-                aria-pressed={active}
-                onClick={() => onToggleGoal(goal)}
-              >
-                <Icon />
-                <span>
-                  <strong>{t(`goals.${goal}.title`)}</strong>
-                  <small>{t(`goals.${goal}.body`)}</small>
-                </span>
-                {active ? <CheckmarkCircleRegular className="goal-check" /> : null}
-              </button>
+              <article key={tweak.id}>
+                <div className="recommendation-icon">
+                  {applied ? <CheckmarkCircleRegular /> : <SettingsRegular />}
+                </div>
+                <div>
+                  <div className="recommendation-title">
+                    <h3>{t(`tweaks.${tweak.id}.label`, { defaultValue: tweak.title.en })}</h3>
+                    <RiskLabel risk={tweak.risk} />
+                  </div>
+                  <p>
+                    {t(`tweaks.${tweak.id}.description`, { defaultValue: tweak.description.en })}
+                  </p>
+                </div>
+                <Button
+                  appearance={selectedIds.has(tweak.id) ? "secondary" : "primary"}
+                  disabled={applied}
+                  onClick={() => onToggle(tweak.id)}
+                >
+                  {applied
+                    ? t("advisor.applied")
+                    : selectedIds.has(tweak.id)
+                      ? t("workspace.recommendations.selected")
+                      : t("workspace.recommendations.add")}
+                </Button>
+              </article>
             );
           })}
         </div>
-      </section>
-
-      <section
-        className="recommendations-section workspace-enter"
-        aria-labelledby="recommendations-title"
-      >
-        <div className="section-title-row">
-          <div>
-            <h2 id="recommendations-title">{t("workspace.recommendations.title")}</h2>
-            <p>{t("workspace.recommendations.body")}</p>
-          </div>
-          <Button
-            appearance="subtle"
-            iconPosition="after"
-            icon={<ArrowRightRegular />}
-            onClick={() => onOpenAll()}
-          >
-            {t("workspace.recommendations.all")}
-          </Button>
-        </div>
-        {selectedGoals.length === 0 ? (
-          <div className="recommendation-empty">
-            <ShieldLockRegular />
-            <div>
-              <h3>{t("workspace.recommendations.emptyTitle")}</h3>
-              <p>{t("workspace.recommendations.emptyBody")}</p>
-            </div>
-          </div>
-        ) : (
-          <div className="recommendation-list">
-            {recommendations.slice(0, 4).map((recommendation) => {
-              const tweak = catalog.find((item) => item.id === recommendation.tweak_id);
-              if (!tweak) return null;
-              const applied = stateById.get(tweak.id) === "applied";
-              return (
-                <article key={tweak.id}>
-                  <div className="recommendation-icon">
-                    {applied ? <CheckmarkCircleRegular /> : <SettingsRegular />}
-                  </div>
-                  <div>
-                    <div className="recommendation-title">
-                      <h3>{t(`tweaks.${tweak.id}.label`, { defaultValue: tweak.label })}</h3>
-                      <RiskLabel risk={tweak.risk} />
-                    </div>
-                    <p>
-                      {t(`tweaks.${tweak.id}.description`, { defaultValue: tweak.description })}
-                    </p>
-                  </div>
-                  <Button
-                    appearance={selectedIds.has(tweak.id) ? "secondary" : "primary"}
-                    disabled={applied}
-                    onClick={() => onToggle(tweak.id)}
-                  >
-                    {applied
-                      ? t("advisor.applied")
-                      : selectedIds.has(tweak.id)
-                        ? t("workspace.recommendations.selected")
-                        : t("workspace.recommendations.add")}
-                  </Button>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
-    </>
+      )}
+    </section>
   );
 }
 
@@ -695,9 +838,12 @@ function RiskLabel({ risk }: { risk: TweakDefinition["risk"] }) {
 function StateLabel({ state }: { state?: TweakStatus["state"] }) {
   const { t } = useTranslation();
   const labels = {
-    applied: "advisor.applied",
+    enabled: "advisor.applied",
+    disabled: "workspace.tweaks.inactive",
     mixed: "advisor.mixed",
-    not_applied: "workspace.tweaks.inactive",
+    unsupported: "workspace.tweaks.unsupported",
+    unknown: "workspace.tweaks.unknown",
+    requires_restart: "workspace.tweaks.requiresRestart",
   } as const;
   return state ? (
     <span className={`state-label state-label--${state}`}>{t(labels[state])}</span>
@@ -719,12 +865,62 @@ function RailItem({ icon, label, active, badge, onClick }: RailItemProps) {
       className="rail-button"
       data-active={active}
       aria-current={active ? "page" : undefined}
+      aria-label={label}
       onClick={onClick}
     >
       {icon}
       <span>{label}</span>
       {badge ? <b>{badge}</b> : null}
     </button>
+  );
+}
+
+type SettingsWorkspaceProps = {
+  dark: boolean;
+  language: string;
+  onThemeChange: () => void;
+  onLanguageChange: () => void;
+};
+
+function SettingsWorkspace({
+  dark,
+  language,
+  onThemeChange,
+  onLanguageChange,
+}: SettingsWorkspaceProps) {
+  const { t } = useTranslation();
+  return (
+    <section className="settings-workspace workspace-enter" aria-labelledby="settings-title">
+      <h2 id="settings-title">{t("workspace.settings.preferences")}</h2>
+      <div className="settings-list">
+        <div>
+          <span className="settings-icon" aria-hidden="true">
+            {dark ? <WeatherMoonRegular /> : <WeatherSunnyRegular />}
+          </span>
+          <div>
+            <strong>{t("workspace.settings.appearance")}</strong>
+            <p>{t("workspace.settings.appearanceBody")}</p>
+          </div>
+          <Button appearance="secondary" onClick={onThemeChange}>
+            {dark ? t("workspace.settings.useLight") : t("workspace.settings.useDark")}
+          </Button>
+        </div>
+        <div>
+          <span className="settings-icon" aria-hidden="true">
+            <LocalLanguageRegular />
+          </span>
+          <div>
+            <strong>{t("workspace.settings.language")}</strong>
+            <p>{t("workspace.settings.languageBody")}</p>
+          </div>
+          <Button appearance="secondary" onClick={onLanguageChange}>
+            {language.startsWith("ru")
+              ? t("workspace.settings.useEnglish")
+              : t("workspace.settings.useRussian")}
+          </Button>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -799,7 +995,8 @@ function ApplicationsWorkspace({
   const fallbackCount =
     manager === "choco" ? selected.filter((app) => app.choco === "na").length : 0;
   const selectedProvider = provider(manager);
-  const canRun = manager === "choco" || selectedProvider?.available === true;
+  const canInstall = manager === "choco" || selectedProvider?.available === true;
+  const canUpdate = selectedProvider?.available === true;
   const commandPreview =
     confirmation === "update"
       ? manager === "winget"
@@ -890,7 +1087,7 @@ function ApplicationsWorkspace({
         <div className="app-store-actions">
           <Button
             appearance="secondary"
-            disabled={!canRun || appUpdating || installing}
+            disabled={!canUpdate || appUpdating || installing}
             onClick={() => setConfirmation("update")}
           >
             {appUpdating ? t("workspace.apps.updating") : t("workspace.apps.updateAll")}
@@ -902,7 +1099,7 @@ function ApplicationsWorkspace({
           ) : null}
           <Button
             appearance="primary"
-            disabled={selectedIds.size === 0 || installing || appUpdating || !canRun}
+            disabled={selectedIds.size === 0 || installing || appUpdating || !canInstall}
             onClick={() => setConfirmation("install")}
           >
             {installing
@@ -1063,7 +1260,21 @@ function MaintenanceResult({ report }: { report: AppInstallReport }) {
   );
 }
 
-function ActivityWorkspace({ recoveries }: { recoveries: RecoverySessionSummary[] }) {
+type RecoveryWorkspaceProps = {
+  recoveries: RecoverySessionSummary[];
+  restoring: boolean;
+  restoreError: boolean;
+  restoredSessionId?: string;
+  onRestore: (sessionId: string) => void;
+};
+
+function RecoveryWorkspace({
+  recoveries,
+  restoring,
+  restoreError,
+  restoredSessionId,
+  onRestore,
+}: RecoveryWorkspaceProps) {
   const { t, i18n } = useTranslation();
   const [activeId, setActiveId] = useState(recoveries[0]?.session_id);
   const active = recoveries.find((item) => item.session_id === activeId) ?? recoveries[0];
@@ -1109,6 +1320,16 @@ function ActivityWorkspace({ recoveries }: { recoveries: RecoverySessionSummary[
             <span>{t("workspace.activity.recovery")}</span>
             <h2>{t("workspace.activity.tweakSession")}</h2>
             <p>{t("workspace.activity.recoveryBody")}</p>
+            {restoreError ? (
+              <MessageBar intent="error">
+                <MessageBarBody>{t("workspace.recover.restoreError")}</MessageBarBody>
+              </MessageBar>
+            ) : null}
+            {restoredSessionId === active.session_id ? (
+              <MessageBar intent="success">
+                <MessageBarBody>{t("workspace.recover.restoreComplete")}</MessageBarBody>
+              </MessageBar>
+            ) : null}
             <dl>
               <div>
                 <dt>{t("workspace.activity.entries")}</dt>
@@ -1121,8 +1342,12 @@ function ActivityWorkspace({ recoveries }: { recoveries: RecoverySessionSummary[
                 </dd>
               </div>
             </dl>
-            <Button appearance="secondary" disabled>
-              {t("workspace.activity.restoreInReview")}
+            <Button
+              appearance="secondary"
+              disabled={restoring}
+              onClick={() => onRestore(active.session_id)}
+            >
+              {restoring ? t("workspace.recover.restoring") : t("workspace.recover.restore")}
             </Button>
           </>
         ) : (

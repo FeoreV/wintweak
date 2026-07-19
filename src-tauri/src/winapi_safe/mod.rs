@@ -23,6 +23,12 @@ impl Default for WindowsRegistry {
 }
 
 #[cfg(windows)]
+pub fn is_user_admin() -> bool {
+    // SAFETY: IsUserAnAdmin takes no pointers and has no preconditions.
+    unsafe { windows_sys::Win32::UI::Shell::IsUserAnAdmin() != 0 }
+}
+
+#[cfg(windows)]
 mod platform {
     use std::ptr;
 

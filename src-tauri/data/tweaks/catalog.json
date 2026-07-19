@@ -1,82 +1,242 @@
 [
   {
-    "id": "enable_long_paths",
-    "label": "Enable Win32 long paths",
-    "description": "Enables long-path-aware applications to use paths beyond the legacy MAX_PATH limit.",
-    "category": "system",
-    "goals": ["development"],
-    "risk": "low",
-    "requires_restart": true,
-    "references": [
-      "https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation"
-    ],
-    "actions": [
-      {
-        "hive": "local_machine",
-        "key_path": "SYSTEM\\CurrentControlSet\\Control\\FileSystem",
-        "value_name": "LongPathsEnabled",
-        "value": { "kind": "dword", "value": 1 }
-      }
-    ]
-  },
-  {
     "id": "disable_advertising_id",
-    "label": "Disable the Windows advertising ID",
-    "description": "Applies the documented machine policy that prevents apps from using the advertising identifier.",
+    "title": { "en": "Disable the Windows advertising ID", "ru": "Отключить рекламный идентификатор Windows" },
+    "description": { "en": "Prevent applications from using the Windows advertising identifier for cross-app personalization.", "ru": "Запрещает приложениям использовать рекламный идентификатор Windows для персонализации между приложениями." },
     "category": "privacy",
     "goals": ["privacy"],
     "risk": "low",
-    "requires_restart": false,
-    "references": [
-      "https://learn.microsoft.com/windows/client-management/mdm/policy-csp-privacy#disableadvertisingid"
-    ],
-    "actions": [
-      {
-        "hive": "local_machine",
-        "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\AdvertisingInfo",
-        "value_name": "DisabledByGroupPolicy",
-        "value": { "kind": "dword", "value": 1 }
-      }
-    ]
+    "support": { "versions": ["windows10", "windows11"], "minimum_build": 10240, "maximum_build": null, "notes": { "en": "Supported on Windows 10 and 11; policy availability can vary by edition.", "ru": "Поддерживается в Windows 10 и 11; доступность политики зависит от редакции." } },
+    "architectures": ["x86_64", "arm64"],
+    "requires_admin": true,
+    "affected_paths": [{ "provider": "registry", "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AdvertisingInfo\\DisabledByGroupPolicy" }],
+    "detect": [{ "hive": "local_machine", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\AdvertisingInfo", "value_name": "DisabledByGroupPolicy", "value": { "kind": "dword", "value": 1 } }],
+    "apply": [{ "hive": "local_machine", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\AdvertisingInfo", "value_name": "DisabledByGroupPolicy", "value": { "kind": "dword", "value": 1 } }],
+    "restore": [{ "hive": "local_machine", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\AdvertisingInfo", "value_name": "DisabledByGroupPolicy", "value": { "kind": "missing" } }],
+    "references": ["https://learn.microsoft.com/windows/client-management/mdm/policy-csp-privacy#disableadvertisingid"],
+    "restart_requirement": "none",
+    "reversible": true,
+    "irreversible_reason": null,
+    "warnings": []
   },
   {
-    "id": "disable_consumer_features",
-    "label": "Disable Microsoft consumer experiences",
-    "description": "Prevents Windows consumer feature suggestions through the documented Cloud Content policy.",
+    "id": "disable_activity_history",
+    "title": { "en": "Disable activity history publishing", "ru": "Отключить публикацию журнала действий" },
+    "description": { "en": "Disable publishing and uploading user activities through the documented Activity Feed policy.", "ru": "Отключает публикацию и отправку действий пользователя с помощью документированной политики Activity Feed." },
     "category": "privacy",
-    "goals": ["privacy", "reduce_distractions"],
+    "goals": ["privacy"],
     "risk": "moderate",
-    "requires_restart": true,
-    "references": [
-      "https://learn.microsoft.com/windows/client-management/mdm/policy-csp-experience#allowwindowsconsumerfeatures"
+    "support": { "versions": ["windows10", "windows11"], "minimum_build": 17134, "maximum_build": null, "notes": { "en": "The policy exists on supported Windows 10 and 11 builds; consumer UI may differ by release.", "ru": "Политика доступна в поддерживаемых сборках Windows 10 и 11; интерфейс зависит от выпуска." } },
+    "architectures": ["x86_64", "arm64"],
+    "requires_admin": true,
+    "affected_paths": [
+      { "provider": "registry", "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System\\PublishUserActivities" },
+      { "provider": "registry", "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System\\UploadUserActivities" }
     ],
-    "actions": [
-      {
-        "hive": "local_machine",
-        "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent",
-        "value_name": "DisableWindowsConsumerFeatures",
-        "value": { "kind": "dword", "value": 1 }
-      }
-    ]
+    "detect": [
+      { "hive": "local_machine", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System", "value_name": "PublishUserActivities", "value": { "kind": "dword", "value": 0 } },
+      { "hive": "local_machine", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System", "value_name": "UploadUserActivities", "value": { "kind": "dword", "value": 0 } }
+    ],
+    "apply": [
+      { "hive": "local_machine", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System", "value_name": "PublishUserActivities", "value": { "kind": "dword", "value": 0 } },
+      { "hive": "local_machine", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System", "value_name": "UploadUserActivities", "value": { "kind": "dword", "value": 0 } }
+    ],
+    "restore": [
+      { "hive": "local_machine", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System", "value_name": "UploadUserActivities", "value": { "kind": "missing" } },
+      { "hive": "local_machine", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System", "value_name": "PublishUserActivities", "value": { "kind": "missing" } }
+    ],
+    "references": ["https://learn.microsoft.com/windows/client-management/mdm/policy-csp-privacy#allowactivityfeed"],
+    "restart_requirement": "logoff",
+    "reversible": true,
+    "irreversible_reason": null,
+    "warnings": [{ "en": "Timeline and cross-device activity experiences may become unavailable.", "ru": "Хронология и синхронизация действий между устройствами могут стать недоступны." }]
   },
   {
     "id": "reduce_diagnostic_data",
-    "label": "Limit diagnostic data to required",
-    "description": "Sets the Windows diagnostic data policy to the supported required-data level.",
+    "title": { "en": "Limit diagnostic data to required", "ru": "Ограничить диагностические данные обязательным уровнем" },
+    "description": { "en": "Set the documented diagnostic-data policy to the required-data level; this does not disable Windows security controls.", "ru": "Устанавливает документированную политику диагностических данных на обязательный уровень и не отключает средства безопасности Windows." },
     "category": "privacy",
     "goals": ["privacy"],
     "risk": "moderate",
-    "requires_restart": true,
-    "references": [
-      "https://learn.microsoft.com/windows/privacy/configure-windows-diagnostic-data-in-your-organization"
+    "support": { "versions": ["windows10", "windows11"], "minimum_build": 10240, "maximum_build": null, "notes": { "en": "The effective minimum level depends on Windows edition and Microsoft policy semantics.", "ru": "Фактический минимальный уровень зависит от редакции Windows и семантики политики Microsoft." } },
+    "architectures": ["x86_64", "arm64"],
+    "requires_admin": true,
+    "affected_paths": [{ "provider": "registry", "path": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection\\AllowTelemetry" }],
+    "detect": [{ "hive": "local_machine", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection", "value_name": "AllowTelemetry", "value": { "kind": "dword", "value": 1 } }],
+    "apply": [{ "hive": "local_machine", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection", "value_name": "AllowTelemetry", "value": { "kind": "dword", "value": 1 } }],
+    "restore": [{ "hive": "local_machine", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection", "value_name": "AllowTelemetry", "value": { "kind": "missing" } }],
+    "references": ["https://learn.microsoft.com/windows/privacy/configure-windows-diagnostic-data-in-your-organization"],
+    "restart_requirement": "reboot",
+    "reversible": true,
+    "irreversible_reason": null,
+    "warnings": [{ "en": "Diagnostic settings can be managed by an organization and may override this value.", "ru": "Параметры диагностики могут управляться организацией и переопределять это значение." }]
+  },
+  {
+    "id": "disable_bing_search_suggestions",
+    "title": { "en": "Disable web suggestions in Windows Search", "ru": "Отключить веб-подсказки в поиске Windows" },
+    "description": { "en": "Keep search-box queries from producing Bing web suggestions.", "ru": "Запрещает вывод веб-подсказок Bing для запросов в поисковой строке." },
+    "category": "search",
+    "goals": ["privacy", "reduce_distractions"],
+    "risk": "low",
+    "support": { "versions": ["windows10", "windows11"], "minimum_build": 19041, "maximum_build": null, "notes": { "en": "Policy behavior is documented for supported Windows editions and can vary after Search updates.", "ru": "Поведение политики документировано для поддерживаемых редакций и может меняться после обновлений поиска." } },
+    "architectures": ["x86_64", "arm64"],
+    "requires_admin": false,
+    "affected_paths": [{ "provider": "registry", "path": "HKCU\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer\\DisableSearchBoxSuggestions" }],
+    "detect": [{ "hive": "current_user", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer", "value_name": "DisableSearchBoxSuggestions", "value": { "kind": "dword", "value": 1 } }],
+    "apply": [{ "hive": "current_user", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer", "value_name": "DisableSearchBoxSuggestions", "value": { "kind": "dword", "value": 1 } }],
+    "restore": [{ "hive": "current_user", "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer", "value_name": "DisableSearchBoxSuggestions", "value": { "kind": "missing" } }],
+    "references": ["https://learn.microsoft.com/windows/client-management/mdm/policy-csp-admx-search#disablesearchboxsuggestions"],
+    "restart_requirement": "explorer_restart",
+    "reversible": true,
+    "irreversible_reason": null,
+    "warnings": [{ "en": "Web results and search suggestions will no longer appear in Windows Search.", "ru": "Веб-результаты и подсказки больше не будут отображаться в поиске Windows." }]
+  },
+  {
+    "id": "disable_widgets",
+    "title": { "en": "Hide the Widgets taskbar button", "ru": "Скрыть кнопку виджетов на панели задач" },
+    "description": { "en": "Hide the Windows 11 Widgets entry point for the current user without removing the package.", "ru": "Скрывает точку входа виджетов Windows 11 для текущего пользователя без удаления пакета." },
+    "category": "taskbar",
+    "goals": ["reduce_distractions"],
+    "risk": "low",
+    "support": { "versions": ["windows11"], "minimum_build": 22000, "maximum_build": null, "notes": { "en": "Windows 11 only. Cumulative updates can change taskbar behavior.", "ru": "Только Windows 11. Накопительные обновления могут менять поведение панели задач." } },
+    "architectures": ["x86_64", "arm64"],
+    "requires_admin": false,
+    "affected_paths": [{ "provider": "registry", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\TaskbarDa" }],
+    "detect": [{ "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "value_name": "TaskbarDa", "value": { "kind": "dword", "value": 0 } }],
+    "apply": [{ "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "value_name": "TaskbarDa", "value": { "kind": "dword", "value": 0 } }],
+    "restore": [{ "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "value_name": "TaskbarDa", "value": { "kind": "dword", "value": 1 } }],
+    "references": ["https://support.microsoft.com/windows/stay-up-to-date-with-widgets-7ba79aaa-dac6-4687-b460-ad16a06be6e4", "https://learn.microsoft.com/windows/configuration/taskbar/"],
+    "restart_requirement": "explorer_restart",
+    "reversible": true,
+    "irreversible_reason": null,
+    "warnings": []
+  },
+  {
+    "id": "left_align_taskbar",
+    "title": { "en": "Left-align the taskbar", "ru": "Выровнять панель задач по левому краю" },
+    "description": { "en": "Use the Windows 11 left taskbar alignment preference for the current user.", "ru": "Устанавливает выравнивание панели задач Windows 11 по левому краю для текущего пользователя." },
+    "category": "taskbar",
+    "goals": ["reduce_distractions"],
+    "risk": "low",
+    "support": { "versions": ["windows11"], "minimum_build": 22000, "maximum_build": null, "notes": { "en": "Windows 11 only; Windows 10 uses a different taskbar layout.", "ru": "Только Windows 11; в Windows 10 используется другая компоновка панели задач." } },
+    "architectures": ["x86_64", "arm64"],
+    "requires_admin": false,
+    "affected_paths": [{ "provider": "registry", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\TaskbarAl" }],
+    "detect": [{ "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "value_name": "TaskbarAl", "value": { "kind": "dword", "value": 0 } }],
+    "apply": [{ "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "value_name": "TaskbarAl", "value": { "kind": "dword", "value": 0 } }],
+    "restore": [{ "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "value_name": "TaskbarAl", "value": { "kind": "dword", "value": 1 } }],
+    "references": ["https://support.microsoft.com/windows/customize-the-taskbar-notification-area-e15964c6-60aa-3a4b-45ad-427f64df52c2", "https://learn.microsoft.com/windows/configuration/taskbar/"],
+    "restart_requirement": "explorer_restart",
+    "reversible": true,
+    "irreversible_reason": null,
+    "warnings": []
+  },
+  {
+    "id": "show_file_extensions",
+    "title": { "en": "Show file-name extensions", "ru": "Показывать расширения имён файлов" },
+    "description": { "en": "Show known file-name extensions in File Explorer.", "ru": "Показывает расширения известных типов файлов в Проводнике." },
+    "category": "explorer",
+    "goals": ["development"],
+    "risk": "low",
+    "support": { "versions": ["windows10", "windows11"], "minimum_build": 10240, "maximum_build": null, "notes": { "en": "Supported for the current user on Windows 10 and 11.", "ru": "Поддерживается для текущего пользователя в Windows 10 и 11." } },
+    "architectures": ["x86_64", "arm64"],
+    "requires_admin": false,
+    "affected_paths": [{ "provider": "registry", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\HideFileExt" }],
+    "detect": [{ "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "value_name": "HideFileExt", "value": { "kind": "dword", "value": 0 } }],
+    "apply": [{ "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "value_name": "HideFileExt", "value": { "kind": "dword", "value": 0 } }],
+    "restore": [{ "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "value_name": "HideFileExt", "value": { "kind": "dword", "value": 1 } }],
+    "references": ["https://support.microsoft.com/windows/common-file-name-extensions-in-windows-da4a4430-8e76-89c5-59f7-1cdbbc75cb01"],
+    "restart_requirement": "explorer_restart",
+    "reversible": true,
+    "irreversible_reason": null,
+    "warnings": []
+  },
+  {
+    "id": "show_hidden_files",
+    "title": { "en": "Show hidden files", "ru": "Показывать скрытые файлы" },
+    "description": { "en": "Show hidden files and folders in File Explorer; protected operating-system files remain separately controlled.", "ru": "Показывает скрытые файлы и папки в Проводнике; защищённые системные файлы управляются отдельно." },
+    "category": "explorer",
+    "goals": ["development"],
+    "risk": "low",
+    "support": { "versions": ["windows10", "windows11"], "minimum_build": 10240, "maximum_build": null, "notes": { "en": "Supported for the current user on Windows 10 and 11.", "ru": "Поддерживается для текущего пользователя в Windows 10 и 11." } },
+    "architectures": ["x86_64", "arm64"],
+    "requires_admin": false,
+    "affected_paths": [{ "provider": "registry", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\Hidden" }],
+    "detect": [{ "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "value_name": "Hidden", "value": { "kind": "dword", "value": 1 } }],
+    "apply": [{ "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "value_name": "Hidden", "value": { "kind": "dword", "value": 1 } }],
+    "restore": [{ "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "value_name": "Hidden", "value": { "kind": "dword", "value": 2 } }],
+    "references": ["https://support.microsoft.com/windows/view-hidden-files-and-folders-in-windows-97fbc472-c603-9d90-91d0-978b0a0b1e2d"],
+    "restart_requirement": "explorer_restart",
+    "reversible": true,
+    "irreversible_reason": null,
+    "warnings": [{ "en": "Hidden application data becomes visible and should not be edited casually.", "ru": "Скрытые данные приложений станут видимыми; не изменяйте их без необходимости." }]
+  },
+  {
+    "id": "dark_mode",
+    "title": { "en": "Use dark mode for apps and Windows", "ru": "Использовать тёмный режим для приложений и Windows" },
+    "description": { "en": "Use the dark color preference for Windows and supported applications.", "ru": "Включает тёмную цветовую схему Windows и поддерживаемых приложений." },
+    "category": "appearance",
+    "goals": ["development"],
+    "risk": "low",
+    "support": { "versions": ["windows10", "windows11"], "minimum_build": 17763, "maximum_build": null, "notes": { "en": "Applications choose whether to follow the Windows color preference.", "ru": "Приложения самостоятельно решают, следовать ли цветовой схеме Windows." } },
+    "architectures": ["x86_64", "arm64"],
+    "requires_admin": false,
+    "affected_paths": [
+      { "provider": "registry", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\\AppsUseLightTheme" },
+      { "provider": "registry", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\\SystemUsesLightTheme" }
     ],
-    "actions": [
-      {
-        "hive": "local_machine",
-        "key_path": "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
-        "value_name": "AllowTelemetry",
-        "value": { "kind": "dword", "value": 1 }
-      }
-    ]
+    "detect": [
+      { "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "value_name": "AppsUseLightTheme", "value": { "kind": "dword", "value": 0 } },
+      { "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "value_name": "SystemUsesLightTheme", "value": { "kind": "dword", "value": 0 } }
+    ],
+    "apply": [
+      { "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "value_name": "AppsUseLightTheme", "value": { "kind": "dword", "value": 0 } },
+      { "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "value_name": "SystemUsesLightTheme", "value": { "kind": "dword", "value": 0 } }
+    ],
+    "restore": [
+      { "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "value_name": "SystemUsesLightTheme", "value": { "kind": "dword", "value": 1 } },
+      { "hive": "current_user", "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "value_name": "AppsUseLightTheme", "value": { "kind": "dword", "value": 1 } }
+    ],
+    "references": ["https://learn.microsoft.com/windows/apps/desktop/modernize/apply-windows-themes", "https://support.microsoft.com/windows/personalize-your-windows-device-with-themes-85516c7c-3c9c-5c1d-8b80-bb80ee4612da"],
+    "restart_requirement": "none",
+    "reversible": true,
+    "irreversible_reason": null,
+    "warnings": []
+  },
+  {
+    "id": "disable_mouse_acceleration",
+    "title": { "en": "Disable Enhance Pointer Precision", "ru": "Отключить повышенную точность указателя" },
+    "description": { "en": "Use a linear pointer response by disabling the current user's mouse acceleration thresholds.", "ru": "Включает линейную реакцию указателя, отключая пороги ускорения мыши для текущего пользователя." },
+    "category": "input",
+    "goals": ["development"],
+    "risk": "low",
+    "support": { "versions": ["windows10", "windows11"], "minimum_build": 10240, "maximum_build": null, "notes": { "en": "Applies to classic mouse pointer settings; vendor software can override effective behavior.", "ru": "Относится к классическим параметрам указателя; ПО производителя может переопределять поведение." } },
+    "architectures": ["x86_64", "arm64"],
+    "requires_admin": false,
+    "affected_paths": [
+      { "provider": "registry", "path": "HKCU\\Control Panel\\Mouse\\MouseSpeed" },
+      { "provider": "registry", "path": "HKCU\\Control Panel\\Mouse\\MouseThreshold1" },
+      { "provider": "registry", "path": "HKCU\\Control Panel\\Mouse\\MouseThreshold2" }
+    ],
+    "detect": [
+      { "hive": "current_user", "key_path": "Control Panel\\Mouse", "value_name": "MouseSpeed", "value": { "kind": "string", "value": "0" } },
+      { "hive": "current_user", "key_path": "Control Panel\\Mouse", "value_name": "MouseThreshold1", "value": { "kind": "string", "value": "0" } },
+      { "hive": "current_user", "key_path": "Control Panel\\Mouse", "value_name": "MouseThreshold2", "value": { "kind": "string", "value": "0" } }
+    ],
+    "apply": [
+      { "hive": "current_user", "key_path": "Control Panel\\Mouse", "value_name": "MouseSpeed", "value": { "kind": "string", "value": "0" } },
+      { "hive": "current_user", "key_path": "Control Panel\\Mouse", "value_name": "MouseThreshold1", "value": { "kind": "string", "value": "0" } },
+      { "hive": "current_user", "key_path": "Control Panel\\Mouse", "value_name": "MouseThreshold2", "value": { "kind": "string", "value": "0" } }
+    ],
+    "restore": [
+      { "hive": "current_user", "key_path": "Control Panel\\Mouse", "value_name": "MouseThreshold2", "value": { "kind": "string", "value": "10" } },
+      { "hive": "current_user", "key_path": "Control Panel\\Mouse", "value_name": "MouseThreshold1", "value": { "kind": "string", "value": "6" } },
+      { "hive": "current_user", "key_path": "Control Panel\\Mouse", "value_name": "MouseSpeed", "value": { "kind": "string", "value": "1" } }
+    ],
+    "references": ["https://support.microsoft.com/windows/change-mouse-settings-e81356a4-0e74-fe38-7d01-9d79fbf8712b", "https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-systemparametersinfoa"],
+    "restart_requirement": "logoff",
+    "reversible": true,
+    "irreversible_reason": null,
+    "warnings": [{ "en": "Pointer movement will feel different; this setting does not claim an FPS or latency gain.", "ru": "Движение указателя изменится; настройка не обещает прирост FPS или снижение задержки." }]
   }
 ]

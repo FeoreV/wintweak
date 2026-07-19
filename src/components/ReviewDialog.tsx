@@ -25,6 +25,7 @@ type ReviewDialogProps = {
   plan?: BatchPlan;
   loading: boolean;
   error: boolean;
+  applyError?: string;
   applying: boolean;
   cancelAvailable: boolean;
   cancelling: boolean;
@@ -38,9 +39,13 @@ type ReviewDialogProps = {
   onRestore: (sessionId: string) => void;
 };
 
-function valueLabel(value: BatchPlan["tweaks"][number]["changes"][number]["target"]): string {
-  if (value.kind === "missing") return "missing";
-  return `${value.kind}: ${value.value}`;
+function valueLabel(
+  value: BatchPlan["tweaks"][number]["changes"][number]["target"],
+  t: ReturnType<typeof useTranslation>["t"],
+): string {
+  if (value.kind === "missing") return t("review.values.missing");
+  if (value.kind === "string") return t("review.values.string", { value: value.value });
+  return `${value.kind.toUpperCase()}: ${value.value}`;
 }
 
 export function ReviewDialog({
@@ -48,6 +53,7 @@ export function ReviewDialog({
   plan,
   loading,
   error,
+  applyError,
   applying,
   cancelAvailable,
   cancelling,
@@ -72,15 +78,30 @@ export function ReviewDialog({
   const progressTotal = Math.max(totalChanges, committedChanges);
   const terminal = operation && ["completed", "cancelled", "failed"].includes(operation.phase);
   const successful = !operation || operation.phase === "completed";
-  const title = report
-    ? successful
-      ? t("review.success")
-      : operation?.phase === "cancelled"
-        ? t("review.cancelled")
-        : t("review.failed")
-    : applying
-      ? t("review.progressTitle")
-      : t("review.title");
+  const terminalFailure =
+    applyError ??
+    (operation?.phase === "failed" ? (operation.error ?? t("review.error")) : undefined);
+  const planWarnings = [...new Set(plan?.tweaks.flatMap((tweak) => tweak.warnings) ?? [])];
+  const planRestart = plan?.tweaks.reduce(
+    (requirement, tweak) =>
+      restartRank(tweak.restart_requirement) > restartRank(requirement)
+        ? tweak.restart_requirement
+        : requirement,
+    "none" as BatchPlan["tweaks"][number]["restart_requirement"],
+  );
+  const title = restored
+    ? t("review.restored")
+    : terminalFailure && !report
+      ? t("review.failed")
+      : report
+        ? successful
+          ? t("review.success")
+          : operation?.phase === "cancelled"
+            ? t("review.cancelled")
+            : t("review.failed")
+        : applying
+          ? t("review.progressTitle")
+          : t("review.title");
 
   return (
     <Dialog open={open} onOpenChange={(_, data) => !applying && onOpenChange(data.open)}>
@@ -93,6 +114,22 @@ export function ReviewDialog({
               <MessageBar intent="error">
                 <MessageBarBody>{t("review.error")}</MessageBarBody>
               </MessageBar>
+            ) : null}
+            {terminalFailure && !report ? (
+              <div className="review-success" data-outcome="failed" aria-live="polite">
+                <p>{t("review.failed")}</p>
+                <MessageBar intent="error">
+                  <MessageBarBody>{terminalFailure}</MessageBarBody>
+                </MessageBar>
+                {operation ? (
+                  <strong>
+                    {t("review.committed", {
+                      committed: committedChanges,
+                      total: totalChanges || committedChanges,
+                    })}
+                  </strong>
+                ) : null}
+              </div>
             ) : null}
             {report ? (
               <div className="review-success" data-outcome={operation?.phase ?? "completed"}>
@@ -112,6 +149,20 @@ export function ReviewDialog({
                     total: totalChanges || report.committed_change_count,
                   })}
                 </strong>
+                {report.restart_requirement !== "none" ? (
+                  <MessageBar intent="warning">
+                    <MessageBarBody>
+                      {t("review.restartRequired", {
+                        requirement: t(`review.restart.${report.restart_requirement}`),
+                      })}
+                    </MessageBarBody>
+                  </MessageBar>
+                ) : null}
+                {report.warnings.map((warning) => (
+                  <MessageBar intent="warning" key={warning}>
+                    <MessageBarBody>{warning}</MessageBarBody>
+                  </MessageBar>
+                ))}
                 {report.session_id ? (
                   <div className="recovery-session">
                     <span>{t("review.recoverySession")}</span>
@@ -147,10 +198,36 @@ export function ReviewDialog({
                     ))}
                 </ol>
               </div>
-            ) : plan ? (
+            ) : applying ? (
+              <Spinner label={t("review.progressTitle")} />
+            ) : !terminalFailure && plan ? (
               <>
                 <p>{t("review.body")}</p>
+                <p className="environment-check">
+                  {t("review.environment", {
+                    windows: plan.environment.windows,
+                    build: plan.environment.build,
+                    architecture: plan.environment.architecture,
+                    elevation: plan.environment.is_admin
+                      ? t("review.administrator")
+                      : t("review.standardUser"),
+                  })}
+                </p>
                 <strong>{t("review.changeCount", { count: plan.change_count })}</strong>
+                {planRestart && planRestart !== "none" ? (
+                  <MessageBar intent="warning">
+                    <MessageBarBody>
+                      {t("review.restartRequired", {
+                        requirement: t(`review.restart.${planRestart}`),
+                      })}
+                    </MessageBarBody>
+                  </MessageBar>
+                ) : null}
+                {planWarnings.map((warning) => (
+                  <MessageBar intent="warning" key={warning}>
+                    <MessageBarBody>{warning}</MessageBarBody>
+                  </MessageBar>
+                ))}
                 <div className="change-list">
                   {plan.tweaks.flatMap((tweak) =>
                     tweak.changes.map((change) => (
@@ -162,8 +239,15 @@ export function ReviewDialog({
                           </span>
                         </div>
                         <code>
-                          {valueLabel(change.current)} → {valueLabel(change.target)}
+                          {valueLabel(change.current, t)} → {valueLabel(change.target, t)}
                         </code>
+                        <span>{change.explanation}</span>
+                        <span>
+                          {t("review.operation", {
+                            provider: change.provider,
+                            operation: change.operation_kind,
+                          })}
+                        </span>
                         {!change.required ? <span>{t("review.unchanged")}</span> : null}
                       </article>
                     )),
@@ -206,7 +290,7 @@ export function ReviewDialog({
               disabled={applying && !terminal}
               onClick={() => onOpenChange(false)}
             >
-              {report ? t("review.close") : t("review.cancel")}
+              {report || terminalFailure ? t("review.close") : t("review.cancel")}
             </Button>
           </DialogActions>
         </DialogBody>
@@ -236,4 +320,8 @@ function applyEventLabel(
     });
   }
   return "";
+}
+
+function restartRank(requirement: BatchPlan["tweaks"][number]["restart_requirement"]): number {
+  return ["none", "explorer_restart", "logoff", "reboot"].indexOf(requirement);
 }

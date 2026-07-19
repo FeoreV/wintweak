@@ -31,7 +31,7 @@ describe("development bridge", () => {
           disposition: "review_required",
         }),
         expect.objectContaining({
-          tweak_id: "enable_long_paths",
+          tweak_id: "show_file_extensions",
           disposition: "not_relevant",
         }),
       ]),
@@ -41,7 +41,7 @@ describe("development bridge", () => {
   it("plans, applies, and restores a selected tweak", () => {
     const config = {
       schema_version: 1,
-      tweaks: [{ id: "disable_advertising_id" }],
+      tweaks: [{ id: "disable_advertising_id", desired_state: "enabled" }],
     };
     const plan = mockCall("plan_batch", { config }) as BatchPlan;
     expect(plan.change_count).toBe(1);
@@ -79,7 +79,10 @@ describe("development bridge", () => {
   it("stages registry apply progress and confirms cancellation at a safe boundary", () => {
     const config = {
       schema_version: 1,
-      tweaks: [{ id: "disable_advertising_id" }, { id: "enable_long_paths" }],
+      tweaks: [
+        { id: "disable_advertising_id", desired_state: "enabled" },
+        { id: "show_file_extensions", desired_state: "enabled" },
+      ],
     };
     const handle = mockCall("start_apply_batch", { config }) as { task_id: string };
 

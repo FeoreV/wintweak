@@ -1,13 +1,17 @@
 //! Thin typed IPC adapters. Business logic remains in `core`.
+#![allow(clippy::missing_errors_doc, clippy::needless_pass_by_value)]
 
 use crate::{
-    core::{advisor, apps, registry, registry::WindowsTweakEngine, registry_data, validator},
+    core::{
+        advisor, apps, profiles, registry, registry::WindowsTweakEngine, registry_data, validator,
+    },
     errors::AppError,
     types::{
         AdvisorReport, AdvisorRequest, AppDefinition, AppInstallRequest, AppOperationHandle,
         AppOperationStatus, AppProviderStatus, ApplyBatchReport, ApplyOperationHandle,
-        ApplyOperationStatus, BatchPlan, ChocolateyBootstrapRequest, RecoverySessionSummary,
-        RestoreSessionReport, TweakBatchConfig, TweakDefinition, TweakStatus, ValidationReport,
+        ApplyOperationStatus, BatchPlan, ChocolateyBootstrapRequest, ProfileDefinition,
+        ProfileName, RecoverySessionSummary, RestoreSessionReport, TweakBatchConfig,
+        TweakDefinition, TweakStatus, ValidationReport,
     },
 };
 
@@ -19,6 +23,24 @@ use crate::{
 /// Returns a schema error when the shipped catalog is invalid.
 pub fn list_tweaks() -> Result<Vec<TweakDefinition>, AppError> {
     registry_data::built_in_catalog()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn list_profiles() -> Vec<ProfileDefinition> {
+    profiles::built_in_profiles()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn plan_profile(name: ProfileName) -> Result<BatchPlan, AppError> {
+    let catalog = registry_data::built_in_catalog()?;
+    let config = profiles::plan(name, &catalog)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        WindowsTweakEngine::new()?.plan_batch(&config, &catalog)
+    })
+    .await
+    .map_err(worker_error)?
 }
 
 #[tauri::command]
@@ -231,6 +253,8 @@ fn worker_error(error: impl std::fmt::Display) -> AppError {
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
         list_tweaks,
+        list_profiles,
+        plan_profile,
         list_apps,
         get_app_provider_statuses,
         start_app_install,

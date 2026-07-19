@@ -6,7 +6,7 @@
   },
   "hero": {
     "title": "A clearer path to a calmer Windows PC.",
-    "body": "Local recommendations, exact change previews, and a recovery trail you control.",
+    "body": "Goal-based recommendations, exact change previews, and a recovery trail you control.",
     "scan": "Scan this PC",
     "browse": "Browse tweaks",
     "imageAlt": "A lighthouse guiding a clear route along the coast"
@@ -28,7 +28,7 @@
     }
   },
   "advisor": {
-    "title": "Your local recommendations",
+    "title": "Recommendations for your goals",
     "empty": "Choose a goal to create a recommendation plan.",
     "ready": "Ready to review",
     "review": "Needs your review",
@@ -43,12 +43,12 @@
   "status": {
     "title": "System state",
     "body": "{{applied}} of {{total}} available tweaks are active.",
-    "local": "Analysis stays local",
+    "local": "Current values are read when needed",
     "recovery": "Every change gets a recovery snapshot"
   },
   "story": {
     "title": "Nothing happens behind your back.",
-    "body": "WinTweak AI reads the current state, matches it to your goals, explains each decision, and waits for explicit approval before Windows changes.",
+    "body": "WinTweak reads the current state, matches it to your goals, explains each decision, and waits for explicit approval before Windows changes.",
     "read": "Read current state",
     "match": "Match your goals",
     "preview": "Preview exact values",
@@ -67,7 +67,7 @@
   "risk": { "low": "Low risk", "moderate": "Moderate risk", "high": "High risk" },
   "review": {
     "title": "Review exact changes",
-    "body": "WinTweak AI will create a recovery snapshot before each required registry write.",
+    "body": "WinTweak will create a recovery snapshot before each required registry write.",
     "loading": "Reading current Windows values",
     "changeCount": "{{count}} registry changes required",
     "unchanged": "Already matches",
@@ -76,6 +76,7 @@
     "success": "Changes applied safely",
     "undo": "Undo this session",
     "undone": "The session was restored",
+    "restored": "Session restored successfully",
     "error": "The operation could not be completed",
     "progressTitle": "Applying reviewed changes",
     "committed": "{{committed}} of {{total}} registry changes committed",
@@ -90,6 +91,10 @@
       "tweakStarted": "Starting {{tweak}}",
       "changeCommitted": "Committed change {{change}} for {{tweak}}",
       "tweakCompleted": "Completed {{tweak}}"
+    },
+    "values": {
+      "missing": "Not set",
+      "string": "Text: {{value}}"
     }
   },
   "action": {
@@ -97,19 +102,71 @@
     "body": "Review exact values, then apply only the changes you understand and want.",
     "review": "Review {{count}} selected",
     "browse": "Choose tweaks",
-    "local": "Local advisor. No telemetry.",
+    "local": "Exact plan before every change.",
     "platform": "Windows 10 and 11"
   },
   "workspace": {
     "skip": "Skip to workspace",
     "navigation": "Primary navigation",
-    "local": "Local analysis active",
-    "commandSearch": "Search tweaks, applications, and commands",
+    "commandSearch": "Search documented tweaks",
     "nav": {
-      "overview": "Overview",
-      "apps": "Applications",
-      "tweaks": "Tweaks",
-      "activity": "Activity"
+      "understand": "Understand",
+      "choose": "Choose",
+      "store": "Store",
+      "recover": "Recover",
+      "settings": "Settings"
+    },
+    "understand": {
+      "title": "Understand",
+      "subtitle": "See what WinTweak can read, change, and restore before you make a decision.",
+      "eyebrow": "Current Windows state",
+      "statement": "Nothing changes until you review the exact plan.",
+      "body": "WinTweak compares documented settings with their current values. You choose the scope; every required registry write is shown before approval and recorded for recovery.",
+      "choose": "Choose changes",
+      "currentState": "Current state summary",
+      "available": "Documented scope",
+      "availableValue": "{{count}} available tweaks",
+      "applied": "Current matches",
+      "appliedValue": "{{count}} already applied",
+      "recovery": "Recovery trail",
+      "recoveryValue": "{{count}} saved sessions",
+      "processLabel": "How a change moves",
+      "processTitle": "One decision at each boundary"
+    },
+    "choose": {
+      "title": "Choose",
+      "subtitle": "Set your priorities, inspect documented targets, and build a change set."
+    },
+    "flow": {
+      "understand": {
+        "title": "Understand",
+        "body": "Read the current state and the safety boundaries."
+      },
+      "choose": { "title": "Choose", "body": "Select only settings that match your intent." },
+      "review": { "title": "Review", "body": "Compare current and target values before consent." },
+      "apply": { "title": "Apply", "body": "Follow progress and cancel at a safe boundary." },
+      "recover": { "title": "Recover", "body": "Restore a saved session when you need to go back." }
+    },
+    "recover": {
+      "title": "Recover",
+      "subtitle": "Inspect saved sessions and restore a previous Windows state.",
+      "restore": "Restore this session",
+      "restoring": "Restoring…",
+      "restoreComplete": "This session was restored. A new recovery session records the restore.",
+      "restoreError": "The session could not be restored. No unreported change is shown as complete."
+    },
+    "settings": {
+      "title": "Settings",
+      "subtitle": "Choose how WinTweak looks and which language it uses.",
+      "preferences": "Application preferences",
+      "appearance": "Appearance",
+      "appearanceBody": "Switch between the paired light and dark themes.",
+      "useLight": "Use light theme",
+      "useDark": "Use dark theme",
+      "language": "Language",
+      "languageBody": "All product controls and guidance change together.",
+      "useEnglish": "Use English",
+      "useRussian": "Use Russian"
     },
     "theme": { "light": "Use light theme", "dark": "Use dark theme" },
     "overview": {
@@ -138,6 +195,11 @@
       "add": "Add",
       "selected": "Selected"
     },
+    "profiles": {
+      "title": "Profiles",
+      "body": "Preview an exact reusable plan before applying it.",
+      "count": "{{count}} tweaks"
+    },
     "tweaks": {
       "title": "All tweaks",
       "subtitle": "Search, inspect exact targets, and prepare a reversible change set.",
@@ -147,19 +209,38 @@
       "categories": {
         "all": "All",
         "privacy": "Privacy",
-        "context_menu": "Context menu",
-        "interface": "Interface",
-        "system": "System",
-        "optimization": "Optimization"
+        "search": "Search",
+        "taskbar": "Taskbar",
+        "explorer": "File Explorer",
+        "appearance": "Appearance",
+        "input": "Mouse and input"
       },
-      "filters": { "all": "All", "recommended": "Recommended", "applied": "Active" },
+      "riskLabel": "Risk level",
+      "filters": {
+        "all": "All",
+        "recommended": "Recommended",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "mixed": "Mixed",
+        "unsupported": "Unsupported",
+        "unknown": "Unknown",
+        "requires_restart": "Restart pending"
+      },
       "count": "{{count}} shown",
       "emptyTitle": "No tweaks found",
       "emptyBody": "Change the search or reset the active filter.",
       "reset": "Reset filters",
       "target": "Windows target",
       "restart": "Restart requirement",
-      "inactive": "Not active"
+      "support": "Windows support",
+      "scope": "Permission scope",
+      "administrator": "Administrator required",
+      "currentUser": "Current user",
+      "affectedPaths": "Affected paths",
+      "inactive": "Disabled",
+      "unsupported": "Unsupported",
+      "unknown": "Unknown",
+      "requiresRestart": "Restart pending"
     },
     "selection": {
       "label": "Pending change set",
@@ -227,8 +308,8 @@
       }
     },
     "activity": {
-      "title": "Activity",
-      "subtitle": "Inspect completed changes, diagnostics, and recovery sessions.",
+      "title": "Recovery sessions",
+      "subtitle": "Inspect completed changes and available recovery sessions.",
       "sessions": "Recovery sessions",
       "emptyTitle": "No sessions yet",
       "emptyBody": "Completed tweak operations with snapshots will appear here.",

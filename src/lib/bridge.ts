@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import upstreamAppCatalog from "../../src-tauri/data/apps/catalog.json";
+import upstreamTweakCatalog from "../../src-tauri/data/tweaks/catalog.json";
 import type {
   AdvisorReport,
   AdvisorRequest,
@@ -7,15 +8,19 @@ import type {
   AppInstallReport,
   AppInstallRequest,
   ApplyBatchReport,
+  ApplyOperationHandle,
+  ApplyOperationStatus,
   AppOperationHandle,
   AppOperationStatus,
   AppPackageManager,
   AppProviderStatus,
-  ApplyOperationHandle,
-  ApplyOperationStatus,
   BatchPlan,
   ChocolateyBootstrapRequest,
+  ProfileDefinition,
+  ProfileName,
   RecoverySessionSummary,
+  RegistryAction,
+  RegistryValue,
   RestoreSessionReport,
   TweakBatchConfig,
   TweakDefinition,
@@ -23,88 +28,61 @@ import type {
   TweakStatus,
 } from "../types/backend.generated";
 
-const catalog: TweakDefinition[] = [
+const catalog = structuredClone(upstreamTweakCatalog) as unknown as TweakDefinition[];
+
+const mockStates = new Map<string, TweakState>(catalog.map((item) => [item.id, "disabled"]));
+const profiles: ProfileDefinition[] = [
   {
-    id: "enable_long_paths",
-    label: "Enable Win32 long paths",
-    description: "Allow compatible apps to use paths beyond the legacy MAX_PATH limit.",
-    category: "system",
-    goals: ["development"],
-    risk: "low",
-    requires_restart: true,
-    references: ["https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation"],
-    actions: [
-      {
-        hive: "local_machine",
-        key_path: "SYSTEM\\CurrentControlSet\\Control\\FileSystem",
-        value_name: "LongPathsEnabled",
-        value: { kind: "dword", value: 1 },
-      },
-    ],
+    name: "privacy",
+    title: { en: "Privacy", ru: "Privacy" },
+    description: { en: "Reduce personalization and activity collection.", ru: "Privacy" },
+    tweaks: [
+      "reduce_diagnostic_data",
+      "disable_advertising_id",
+      "disable_activity_history",
+      "disable_bing_search_suggestions",
+      "disable_widgets",
+    ].map((id) => ({ id, desired_state: "enabled" })),
   },
   {
-    id: "disable_advertising_id",
-    label: "Disable the Windows advertising ID",
-    description: "Prevent apps from using the Windows advertising identifier.",
-    category: "privacy",
-    goals: ["privacy"],
-    risk: "low",
-    requires_restart: false,
-    references: [
-      "https://learn.microsoft.com/windows/client-management/mdm/policy-csp-privacy#disableadvertisingid",
-    ],
-    actions: [
-      {
-        hive: "local_machine",
-        key_path: "SOFTWARE\\Policies\\Microsoft\\Windows\\AdvertisingInfo",
-        value_name: "DisabledByGroupPolicy",
-        value: { kind: "dword", value: 1 },
-      },
-    ],
+    name: "balanced",
+    title: { en: "Balanced", ru: "Balanced" },
+    description: { en: "Conservative privacy and usability defaults.", ru: "Balanced" },
+    tweaks: [
+      "disable_advertising_id",
+      "disable_bing_search_suggestions",
+      "show_file_extensions",
+      "dark_mode",
+    ].map((id) => ({ id, desired_state: "enabled" })),
   },
   {
-    id: "disable_consumer_features",
-    label: "Disable Microsoft consumer experiences",
-    description: "Stop Windows from adding consumer suggestions through Cloud Content policy.",
-    category: "privacy",
-    goals: ["privacy", "reduce_distractions"],
-    risk: "moderate",
-    requires_restart: true,
-    references: [
-      "https://learn.microsoft.com/windows/client-management/mdm/policy-csp-experience#allowwindowsconsumerfeatures",
-    ],
-    actions: [
-      {
-        hive: "local_machine",
-        key_path: "SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent",
-        value_name: "DisableWindowsConsumerFeatures",
-        value: { kind: "dword", value: 1 },
-      },
-    ],
+    name: "performance",
+    title: { en: "Performance", ru: "Performance" },
+    description: { en: "Low-risk interaction and shell adjustments.", ru: "Performance" },
+    tweaks: ["disable_widgets", "disable_mouse_acceleration", "show_file_extensions"].map((id) => ({
+      id,
+      desired_state: "enabled",
+    })),
   },
   {
-    id: "reduce_diagnostic_data",
-    label: "Limit diagnostic data to required",
-    description: "Set Windows diagnostic policy to the supported required-data level.",
-    category: "privacy",
-    goals: ["privacy"],
-    risk: "moderate",
-    requires_restart: true,
-    references: [
-      "https://learn.microsoft.com/windows/privacy/configure-windows-diagnostic-data-in-your-organization",
-    ],
-    actions: [
-      {
-        hive: "local_machine",
-        key_path: "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
-        value_name: "AllowTelemetry",
-        value: { kind: "dword", value: 1 },
-      },
-    ],
+    name: "developer",
+    title: { en: "Developer", ru: "Developer" },
+    description: { en: "Developer-friendly Explorer and shell defaults.", ru: "Developer" },
+    tweaks: ["show_file_extensions", "show_hidden_files", "dark_mode"].map((id) => ({
+      id,
+      desired_state: "enabled",
+    })),
+  },
+  {
+    name: "minimal",
+    title: { en: "Minimal", ru: "Minimal" },
+    description: { en: "Small, low-risk set.", ru: "Minimal" },
+    tweaks: ["show_file_extensions", "disable_mouse_acceleration"].map((id) => ({
+      id,
+      desired_state: "enabled",
+    })),
   },
 ];
-
-const mockStates = new Map<string, TweakState>(catalog.map((item) => [item.id, "not_applied"]));
 type UpstreamApp = Omit<AppDefinition, "id" | "name" | "choco"> & {
   content: string;
   choco?: string;
@@ -202,10 +180,17 @@ export function mockCall(command: string, args?: Record<string, unknown>): unkno
     return;
   }
   if (command === "list_tweaks") return structuredClone(catalog);
+  if (command === "list_profiles") return structuredClone(profiles);
+  if (command === "plan_profile") {
+    const profile = profiles.find((item) => item.name === args?.name);
+    if (!profile) throw new Error("Unknown profile");
+    return mockCall("plan_batch", { config: { schema_version: 1, tweaks: profile.tweaks } });
+  }
   if (command === "get_tweak_statuses") {
     return catalog.map((item) => ({
       id: item.id,
-      state: mockStates.get(item.id) ?? "not_applied",
+      state: mockStates.get(item.id) ?? "disabled",
+      restart_requirement: item.restart_requirement,
     }));
   }
   if (command === "get_advisor_report") {
@@ -213,9 +198,9 @@ export function mockCall(command: string, args?: Record<string, unknown>): unkno
     return {
       recommendations: catalog.map((item) => {
         const matched = item.goals.filter((goal) => request.goals.includes(goal));
-        const state = mockStates.get(item.id) ?? "not_applied";
+        const state = mockStates.get(item.id) ?? "disabled";
         const disposition =
-          state === "applied"
+          state === "enabled"
             ? "already_applied"
             : state === "mixed"
               ? "mixed"
@@ -230,34 +215,61 @@ export function mockCall(command: string, args?: Record<string, unknown>): unkno
   }
   if (command === "plan_batch") {
     const config = args?.config as TweakBatchConfig;
-    const tweaks = config.tweaks.map(({ id }) => {
+    const tweaks = config.tweaks.map(({ id, desired_state }) => {
       const item = catalog.find((candidate) => candidate.id === id);
       if (!item) throw new Error(`Unknown tweak: ${id}`);
+      const operations = desired_state === "disabled" ? item.restore : item.apply;
       return {
         id,
-        changes: item.actions.map((action) => ({
-          hive: action.hive,
-          key_path: action.key_path,
-          value_name: action.value_name,
-          current: mockStates.get(id) === "applied" ? action.value : ({ kind: "missing" } as const),
-          target: action.value,
-          required: mockStates.get(id) !== "applied",
-        })),
+        desired_state,
+        warnings: item.warnings.map((warning) => warning.en),
+        restart_requirement: item.restart_requirement,
+        changes: operations.map((action) => {
+          const current = previewCurrentValue(item, action);
+          return {
+            provider: "registry" as const,
+            operation_kind:
+              desired_state === "disabled" ? ("restore" as const) : ("apply" as const),
+            hive: action.hive,
+            key_path: action.key_path,
+            value_name: action.value_name,
+            current,
+            target: action.value,
+            required: !registryValuesEqual(current, action.value),
+            explanation:
+              desired_state === "enabled"
+                ? item.description.en
+                : `Return '${item.title.en}' to its reviewed catalog default; session undo preserves the exact pre-state.`,
+            recovery_data: { action, previous: current },
+            warnings: item.warnings.map((warning) => warning.en),
+            restart_requirement: item.restart_requirement,
+          };
+        }),
       };
     });
     return {
       tweaks,
+      environment: { windows: "windows11", build: 26100, architecture: "x86_64", is_admin: true },
       change_count: tweaks.flatMap((item) => item.changes).filter((item) => item.required).length,
     } satisfies BatchPlan;
   }
   if (command === "apply_batch") {
     const config = args?.config as TweakBatchConfig;
     const plan = mockCall("plan_batch", { config }) as BatchPlan;
-    for (const item of config.tweaks) mockStates.set(item.id, "applied");
+    for (const item of config.tweaks) mockStates.set(item.id, item.desired_state);
+    const changed = plan.tweaks.filter((tweak) => tweak.changes.some((change) => change.required));
     return {
       session_id: plan.change_count > 0 ? crypto.randomUUID() : undefined,
       applied_tweaks: config.tweaks.map(({ id }) => id),
       committed_change_count: plan.change_count,
+      restart_requirement: changed.reduce(
+        (requirement, tweak) =>
+          restartRank(tweak.restart_requirement) > restartRank(requirement)
+            ? tweak.restart_requirement
+            : requirement,
+        "none" as ApplyBatchReport["restart_requirement"],
+      ),
+      warnings: [...new Set(changed.flatMap((tweak) => tweak.warnings))],
     } satisfies ApplyBatchReport;
   }
   if (command === "start_apply_batch") {
@@ -292,7 +304,7 @@ export function mockCall(command: string, args?: Record<string, unknown>): unkno
     return;
   }
   if (command === "restore_session") {
-    for (const item of catalog) mockStates.set(item.id, "not_applied");
+    for (const item of catalog) mockStates.set(item.id, "disabled");
     return {
       recovery_session_id: crypto.randomUUID(),
       source_session_id: String(args?.sessionId ?? ""),
@@ -306,16 +318,16 @@ export function mockCall(command: string, args?: Record<string, unknown>): unkno
 
 export const bridge = {
   listTweaks: () => call<TweakDefinition[]>("list_tweaks"),
+  listProfiles: () => call<ProfileDefinition[]>("list_profiles"),
+  planProfile: (name: ProfileName) => call<BatchPlan>("plan_profile", { name }),
   statuses: () => call<TweakStatus[]>("get_tweak_statuses"),
   advisor: (request: AdvisorRequest) => call<AdvisorReport>("get_advisor_report", { request }),
   plan: (config: TweakBatchConfig) => call<BatchPlan>("plan_batch", { config }),
   apply: (config: TweakBatchConfig) => call<ApplyBatchReport>("apply_batch", { config }),
   startApply: (config: TweakBatchConfig) =>
     call<ApplyOperationHandle>("start_apply_batch", { config }),
-  applyOperation: (taskId: string) =>
-    call<ApplyOperationStatus>("get_apply_operation", { taskId }),
-  cancelApplyOperation: (taskId: string) =>
-    call<void>("cancel_apply_operation", { taskId }),
+  applyOperation: (taskId: string) => call<ApplyOperationStatus>("get_apply_operation", { taskId }),
+  cancelApplyOperation: (taskId: string) => call<void>("cancel_apply_operation", { taskId }),
   recoveries: () => call<RecoverySessionSummary[]>("list_recovery_sessions"),
   restore: (sessionId: string) => call<RestoreSessionReport>("restore_session", { sessionId }),
   listApps: () => call<AppDefinition[]>("list_apps"),
@@ -360,10 +372,8 @@ function advancePreviewApply(task: PreviewApplyTask): void {
     task.status.report = previewApplyReport(task);
     return;
   }
-  if (
-    task.cancelRequested &&
-    (!task.tweakStarted || task.nextChangeIndex < definition.actions.length)
-  ) {
+  const operations = request.desired_state === "disabled" ? definition.restore : definition.apply;
+  if (task.cancelRequested && (!task.tweakStarted || task.nextChangeIndex < operations.length)) {
     finishPreviewApply(task, "cancelled");
     return;
   }
@@ -376,10 +386,10 @@ function advancePreviewApply(task: PreviewApplyTask): void {
     task.tweakStarted = true;
     return;
   }
-  while (task.nextChangeIndex < definition.actions.length) {
+  while (task.nextChangeIndex < operations.length) {
     const changeIndex = task.nextChangeIndex++;
-    if (mockStates.get(request.id) === "applied") continue;
-    mockStates.set(request.id, "applied");
+    if (mockStates.get(request.id) === request.desired_state) continue;
+    mockStates.set(request.id, request.desired_state);
     task.sessionId ??= crypto.randomUUID();
     task.committedChangeCount += 1;
     task.status.events.push({
@@ -408,10 +418,7 @@ function advancePreviewApply(task: PreviewApplyTask): void {
   }
 }
 
-function finishPreviewApply(
-  task: PreviewApplyTask,
-  phase: "completed" | "cancelled",
-): void {
+function finishPreviewApply(task: PreviewApplyTask, phase: "completed" | "cancelled"): void {
   task.status.phase = phase;
   task.status.report = previewApplyReport(task);
   task.status.events.push({
@@ -423,9 +430,53 @@ function finishPreviewApply(
 }
 
 function previewApplyReport(task: PreviewApplyTask): ApplyBatchReport {
+  const changed = task.config.tweaks
+    .filter((tweak) => task.appliedTweaks.includes(tweak.id))
+    .map((tweak) => catalog.find((definition) => definition.id === tweak.id))
+    .filter((definition): definition is TweakDefinition => Boolean(definition));
   return {
     session_id: task.sessionId,
     applied_tweaks: [...task.appliedTweaks],
     committed_change_count: task.committedChangeCount,
+    restart_requirement: changed.reduce(
+      (requirement, definition) =>
+        restartRank(definition.restart_requirement) > restartRank(requirement)
+          ? definition.restart_requirement
+          : requirement,
+      "none" as ApplyBatchReport["restart_requirement"],
+    ),
+    warnings: [
+      ...new Set(changed.flatMap((definition) => definition.warnings.map((item) => item.en))),
+    ],
   };
+}
+
+function previewCurrentValue(
+  definition: TweakDefinition,
+  operation: RegistryAction,
+): RegistryValue {
+  const state = mockStates.get(definition.id) ?? "disabled";
+  const source =
+    state === "enabled" || state === "requires_restart" ? definition.apply : definition.restore;
+  return matchingAction(source, operation)?.value ?? { kind: "missing" };
+}
+
+function matchingAction(
+  actions: RegistryAction[],
+  target: RegistryAction,
+): RegistryAction | undefined {
+  return actions.find(
+    (action) =>
+      action.hive === target.hive &&
+      action.key_path.toLocaleLowerCase() === target.key_path.toLocaleLowerCase() &&
+      action.value_name.toLocaleLowerCase() === target.value_name.toLocaleLowerCase(),
+  );
+}
+
+function registryValuesEqual(left: RegistryValue, right: RegistryValue): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function restartRank(requirement: ApplyBatchReport["restart_requirement"]): number {
+  return ["none", "explorer_restart", "logoff", "reboot"].indexOf(requirement);
 }

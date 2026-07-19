@@ -1,4 +1,12 @@
 //! Curated application catalog, provider discovery, and cancellable operations.
+#![allow(
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::needless_pass_by_value,
+    clippy::type_complexity,
+    clippy::needless_borrow,
+    clippy::cloned_instead_of_copied
+)]
 
 use std::{
     collections::HashMap,
