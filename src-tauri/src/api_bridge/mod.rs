@@ -3,7 +3,7 @@
 
 use crate::{
     core::{
-        advisor, apps, apps::PackageProvider, appx::AppxProvider, profiles,
+        advisor, apps, apps::PackageProvider, appx::AppxProvider, drivers, profiles,
         provider::InventoryProvider, registry, registry::WindowsTweakEngine, registry_data,
         system_info::SystemInfoProvider, validator,
     },
@@ -12,11 +12,19 @@ use crate::{
         AdvisorReport, AdvisorRequest, AppDefinition, AppInstallRequest, AppOperationHandle,
         AppOperationStatus, AppProviderStatus, ApplyBatchReport, ApplyOperationHandle,
         ApplyOperationStatus, AppxPackage, AppxRemovalPreview, BatchPlan,
-        ChocolateyBootstrapRequest, ProfileDefinition, ProfileName, RecoverySessionSummary,
-        RestoreSessionReport, SystemAudit, TweakBatchConfig, TweakDefinition, TweakStatus,
-        ValidationReport,
+        ChocolateyBootstrapRequest, DriverInventory, DriverUpdateReport, DriverUpdateRequest,
+        InstalledApp, ProfileDefinition, ProfileName, RecoverySessionSummary, RestoreSessionReport,
+        SystemAudit, TweakBatchConfig, TweakDefinition, TweakStatus, ValidationReport,
     },
 };
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_installed_apps() -> Result<Vec<InstalledApp>, AppError> {
+    tauri::async_runtime::spawn_blocking(apps::installed_apps)
+        .await
+        .map_err(worker_error)?
+}
 
 #[tauri::command]
 #[specta::specta]
@@ -80,6 +88,25 @@ pub fn list_apps() -> Result<Vec<AppDefinition>, AppError> {
 #[specta::specta]
 pub fn get_app_provider_statuses() -> Vec<AppProviderStatus> {
     PackageProvider::new().statuses()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_driver_inventory() -> Result<DriverInventory, AppError> {
+    tauri::async_runtime::spawn_blocking(drivers::inventory)
+        .await
+        .map_err(worker_error)?
+}
+
+#[tauri::command]
+#[specta::specta]
+#[allow(clippy::needless_pass_by_value)]
+pub async fn install_driver_update(
+    request: DriverUpdateRequest,
+) -> Result<DriverUpdateReport, AppError> {
+    tauri::async_runtime::spawn_blocking(move || drivers::install_update(request))
+        .await
+        .map_err(worker_error)?
 }
 
 #[tauri::command]
@@ -286,7 +313,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         get_system_audit,
         plan_profile,
         list_apps,
+        list_installed_apps,
         get_app_provider_statuses,
+        get_driver_inventory,
+        install_driver_update,
         start_app_install,
         start_app_update,
         start_chocolatey_bootstrap,

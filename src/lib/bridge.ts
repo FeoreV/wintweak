@@ -18,6 +18,10 @@ import type {
   AppxRemovalPreview,
   BatchPlan,
   ChocolateyBootstrapRequest,
+  DriverInventory,
+  DriverUpdateReport,
+  DriverUpdateRequest,
+  InstalledApp,
   ProfileDefinition,
   ProfileName,
   RecoverySessionSummary,
@@ -145,6 +149,14 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   return mockCall(command, args) as T;
 }
 
+function previewDriverInventory(): DriverInventory {
+  return {
+    devices: [],
+    updates: [],
+    update_search_error: "Driver inventory requires the native Tauri Windows backend.",
+  };
+}
+
 export function mockCall(command: string, args?: Record<string, unknown>): unknown {
   if (command === "list_apps") return structuredClone(mockApps);
   if (command === "get_app_provider_statuses") {
@@ -152,6 +164,10 @@ export function mockCall(command: string, args?: Record<string, unknown>): unkno
       { manager: "winget", available: true, version: "Preview provider" },
       { manager: "choco", available: false },
     ] satisfies AppProviderStatus[];
+  }
+  if (command === "get_driver_inventory") return previewDriverInventory();
+  if (command === "install_driver_update") {
+    throw new Error("Driver updates require the native Tauri Windows backend.");
   }
   if (command === "start_app_install" || command === "start_app_update") {
     const request = args?.request as AppInstallRequest;
@@ -206,12 +222,64 @@ export function mockCall(command: string, args?: Record<string, unknown>): unkno
   if (command === "cancel_app_operation") {
     return;
   }
+  if (command === "list_installed_apps") {
+    return [
+      {
+        id: "registry:LocalMachine:7-Zip",
+        display_name: "7-Zip 24.07 (x64)",
+        display_version: "24.07",
+        publisher: "Igor Pavlov",
+        source: "registry",
+        is_system_component: false,
+        update_available: false,
+      },
+      {
+        id: "registry:LocalMachine:Git",
+        display_name: "Git",
+        display_version: "2.45.0",
+        publisher: "The Git Development Team",
+        source: "registry",
+        is_system_component: false,
+        update_available: true,
+        available_version: "2.48.1",
+      },
+    ];
+  }
   if (command === "list_tweaks") return structuredClone(catalog);
-  if (
-    command === "list_appx_packages" ||
-    command === "preview_appx_removal" ||
-    command === "get_system_audit"
-  ) {
+  if (command === "get_system_audit") {
+    return {
+      environment: { windows: "windows11", build: 26100, architecture: "x86_64", is_admin: true },
+      system_info: {
+        computer_name: "DESKTOP-WIN11",
+        os_product_name: "Windows 11 Pro",
+        os_display_version: "24H2",
+        os_build: 26100,
+        os_architecture: "x86_64",
+        is_admin: true,
+        cpu_name: "13th Gen Intel(R) Core(TM) i7-13700K",
+        logical_cores: 24,
+        total_memory_bytes: 34359738368,
+        available_memory_bytes: 21474836480,
+        gpu_adapters: ["NVIDIA GeForce RTX 4080"],
+        volumes: [
+          { mount_point: "C:", label: "System", total_bytes: 1024000000000, free_bytes: 450000000000, low_space: false },
+        ],
+        uptime_seconds: 86400,
+      },
+      pending_restart: false,
+      pending_restart_reasons: [],
+      tweak_statuses: [],
+      recovery_session_count: 0,
+      installed_apps_count: 42,
+      appx_package_count: 35,
+      driver_updates_count: 0,
+      package_providers: [
+        { manager: "winget", available: true, version: "v1.9.2" },
+        { manager: "choco", available: false },
+      ],
+    };
+  }
+  if (command === "list_appx_packages" || command === "preview_appx_removal") {
     throw new Error("Native Windows inventory is unavailable in browser preview mode.");
   }
   if (command === "list_profiles") return structuredClone(profiles);
@@ -369,7 +437,11 @@ export const bridge = {
   recoveries: () => call<RecoverySessionSummary[]>("list_recovery_sessions"),
   restore: (sessionId: string) => call<RestoreSessionReport>("restore_session", { sessionId }),
   listApps: () => call<AppDefinition[]>("list_apps"),
+  listInstalledApps: () => call<InstalledApp[]>("list_installed_apps"),
   appProviders: () => call<AppProviderStatus[]>("get_app_provider_statuses"),
+  driverInventory: () => call<DriverInventory>("get_driver_inventory"),
+  installDriverUpdate: (request: DriverUpdateRequest) =>
+    call<DriverUpdateReport>("install_driver_update", { request }),
   startAppInstall: (request: AppInstallRequest) =>
     call<AppOperationHandle>("start_app_install", { request }),
   startAppUpdate: (request: AppInstallRequest) =>

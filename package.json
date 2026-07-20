@@ -14,7 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check:rust": "node scripts/check-rust-toolchain.mjs",
-    "tauri": "pnpm check:rust && tauri"
+    "tauri": "node scripts/check-rust-toolchain.mjs tauri"
   },
   "dependencies": {
     "@fluentui/react-components": "9.74.4",
