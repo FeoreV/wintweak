@@ -3,6 +3,7 @@
 pub mod advisor;
 pub mod apps;
 pub mod appx;
+pub mod drivers;
 pub mod environment;
 pub mod profiles;
 pub mod provider;

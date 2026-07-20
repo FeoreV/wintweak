@@ -540,6 +540,120 @@ fn first_line(value: String) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+/// Collects installed Win32 software from registry and Appx packages into a normalized list.
+pub fn installed_apps() -> Result<Vec<crate::types::InstalledApp>, AppError> {
+    let mut apps = Vec::new();
+    #[cfg(windows)]
+    {
+        scan_uninstall_registry(&mut apps);
+    }
+
+    if let Ok(appx_packages) = crate::core::appx::AppxProvider::new().inventory() {
+        for appx in appx_packages {
+            if !appx.is_framework && !appx.is_resource {
+                apps.push(crate::types::InstalledApp {
+                    id: format!("appx:{}", appx.full_name),
+                    display_name: appx.name,
+                    display_version: Some(appx.version),
+                    publisher: Some(appx.publisher_id),
+                    install_location: None,
+                    install_date: None,
+                    source: crate::types::InstalledAppSource::Appx,
+                    package_id: Some(appx.full_name),
+                    is_system_component: appx.safety != crate::types::AppxSafety::ReviewedOptional,
+                    update_available: false,
+                    available_version: None,
+                });
+            }
+        }
+    }
+
+    apps.sort_by(|a, b| a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()));
+    apps.dedup_by(|a, b| a.id == b.id || (a.display_name == b.display_name && a.publisher == b.publisher));
+    Ok(apps)
+}
+
+#[cfg(windows)]
+fn scan_uninstall_registry(apps: &mut Vec<crate::types::InstalledApp>) {
+    use crate::{
+        core::registry::RegistryBackend,
+        types::{RegistryAction, RegistryHive, RegistryValue},
+        winapi_safe::{WindowsRegistry, list_subkeys},
+    };
+    let registry = WindowsRegistry::new();
+
+    let uninstall_paths = [
+        (RegistryHive::LocalMachine, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+        (RegistryHive::LocalMachine, "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+        (RegistryHive::CurrentUser, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+    ];
+
+    for (hive, base_path) in uninstall_paths {
+        if let Ok(subkeys) = list_subkeys(hive, base_path) {
+            for subkey in subkeys {
+                let key_path = format!("{base_path}\\{subkey}");
+                let get_str = |val_name: &str| -> Option<String> {
+                    let action = RegistryAction {
+                        hive,
+                        key_path: key_path.clone(),
+                        value_name: val_name.to_owned(),
+                        value: RegistryValue::Missing,
+                    };
+                    match registry.read(&action) {
+                        Ok(RegistryValue::String(s)) => {
+                            let trimmed = s.trim().to_owned();
+                            if trimmed.is_empty() { None } else { Some(trimmed) }
+                        }
+                        _ => None,
+                    }
+                };
+                let get_dword = |val_name: &str| -> Option<u32> {
+                    let action = RegistryAction {
+                        hive,
+                        key_path: key_path.clone(),
+                        value_name: val_name.to_owned(),
+                        value: RegistryValue::Missing,
+                    };
+                    match registry.read(&action) {
+                        Ok(RegistryValue::Dword(d)) => Some(d),
+                        _ => None,
+                    }
+                };
+
+                let display_name = get_str("DisplayName");
+                let Some(name) = display_name else {
+                    continue;
+                };
+
+                let is_system = get_dword("SystemComponent").unwrap_or(0) == 1
+                    || get_str("ParentKeyName").is_some()
+                    || subkey.starts_with("KB")
+                    || name.starts_with("Security Update")
+                    || name.starts_with("Update for ");
+
+                let display_version = get_str("DisplayVersion");
+                let publisher = get_str("Publisher");
+                let install_location = get_str("InstallLocation");
+                let install_date = get_str("InstallDate");
+
+                apps.push(crate::types::InstalledApp {
+                    id: format!("registry:{hive:?}:{subkey}"),
+                    display_name: name,
+                    display_version,
+                    publisher,
+                    install_location,
+                    install_date,
+                    source: crate::types::InstalledAppSource::Registry,
+                    package_id: None,
+                    is_system_component: is_system,
+                    update_available: false,
+                    available_version: None,
+                });
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

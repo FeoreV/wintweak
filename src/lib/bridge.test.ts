@@ -115,4 +115,13 @@ describe("development bridge", () => {
     expect(cancelled.report?.session_id).toBeTruthy();
     expect(cancelled.events.at(-1)?.kind).toBe("cancelled");
   });
+
+  it("returns system overview and installed apps inventory in mock bridge", () => {
+    const audit = mockCall("get_system_audit") as { system_info: { computer_name: string } };
+    expect(audit.system_info.computer_name).toBeTruthy();
+
+    const installed = mockCall("list_installed_apps") as { id: string; display_name: string }[];
+    expect(installed.length).toBeGreaterThan(0);
+    expect(installed[0].display_name).toBeTruthy();
+  });
 });

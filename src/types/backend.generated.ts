@@ -223,13 +223,53 @@ export type AppxRemovalPreview = {
   explanation: string;
   references: string[];
 };
+export type SystemVolume = {
+  mount_point: string;
+  label: string;
+  total_bytes: number;
+  free_bytes: number;
+  low_space: boolean;
+};
+export type SystemOverview = {
+  computer_name: string;
+  os_product_name: string;
+  os_display_version: string;
+  os_build: number;
+  os_architecture: string;
+  is_admin: boolean;
+  cpu_name: string;
+  logical_cores: number;
+  total_memory_bytes: number;
+  available_memory_bytes: number;
+  gpu_adapters: string[];
+  volumes: SystemVolume[];
+  uptime_seconds: number;
+};
+export type InstalledAppSource = "registry" | "appx" | "winget" | "choco";
+export type InstalledApp = {
+  id: string;
+  display_name: string;
+  display_version?: string;
+  publisher?: string;
+  install_location?: string;
+  install_date?: string;
+  source: InstalledAppSource;
+  package_id?: string;
+  is_system_component: boolean;
+  update_available: boolean;
+  available_version?: string;
+};
 export type SystemAudit = {
   environment: EnvironmentCheck;
+  system_info: SystemOverview;
   pending_restart: boolean;
   pending_restart_reasons: string[];
   tweak_statuses: TweakStatus[];
   recovery_session_count: number;
+  installed_apps_count: number;
   appx_package_count: number;
+  driver_updates_count: number;
+  driver_search_error?: string;
   package_providers: AppProviderStatus[];
 };
 export type AppPackageManager = "winget" | "choco";
@@ -289,4 +329,43 @@ export type AppOperationStatus = {
   phase: AppOperationPhase;
   events: AppOperationEvent[];
   report?: AppInstallReport;
+};
+
+export type InstalledDriver = {
+  device_id: string;
+  device_name: string;
+  manufacturer: string;
+  installed_version?: string;
+  driver_date?: string;
+  inf_name?: string;
+  signed: boolean;
+  signer?: string;
+};
+export type AvailableDriverUpdate = {
+  update_id: string;
+  revision_number: number;
+  title: string;
+  description?: string;
+  manufacturer?: string;
+  model?: string;
+  driver_class?: string;
+  version?: string;
+  driver_date?: string;
+  max_download_size?: number;
+  eula_accepted: boolean;
+  downloaded: boolean;
+};
+export type DriverInventory = {
+  devices: InstalledDriver[];
+  updates: AvailableDriverUpdate[];
+  update_search_error?: string;
+};
+export type DriverUpdateRequest = { update_id: string; revision_number: number };
+export type DriverUpdateReport = {
+  update_id: string;
+  revision_number: number;
+  title: string;
+  result_code: number;
+  reboot_required: boolean;
+  message: string;
 };

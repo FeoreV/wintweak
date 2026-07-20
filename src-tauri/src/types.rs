@@ -138,6 +138,62 @@ pub struct AppOperationStatus {
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
 #[serde(deny_unknown_fields)]
+pub struct InstalledDriver {
+    pub device_id: String,
+    pub device_name: String,
+    pub manufacturer: String,
+    pub installed_version: Option<String>,
+    pub driver_date: Option<String>,
+    pub inf_name: Option<String>,
+    pub signed: bool,
+    pub signer: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct AvailableDriverUpdate {
+    pub update_id: String,
+    pub revision_number: u32,
+    pub title: String,
+    pub description: Option<String>,
+    pub manufacturer: Option<String>,
+    pub model: Option<String>,
+    pub driver_class: Option<String>,
+    pub version: Option<String>,
+    pub driver_date: Option<String>,
+    pub max_download_size: Option<u64>,
+    pub eula_accepted: bool,
+    pub downloaded: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct DriverInventory {
+    pub devices: Vec<InstalledDriver>,
+    pub updates: Vec<AvailableDriverUpdate>,
+    pub update_search_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct DriverUpdateRequest {
+    pub update_id: String,
+    pub revision_number: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct DriverUpdateReport {
+    pub update_id: String,
+    pub revision_number: u32,
+    pub title: String,
+    pub result_code: i32,
+    pub reboot_required: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
 pub struct TweakRequest {
     pub id: String,
     pub desired_state: TweakDesiredState,
@@ -574,12 +630,69 @@ pub struct AppxRemovalPreview {
 
 #[derive(Debug, Clone, Deserialize, Serialize, Type)]
 #[serde(deny_unknown_fields)]
+pub struct SystemVolume {
+    pub mount_point: String,
+    pub label: String,
+    pub total_bytes: u64,
+    pub free_bytes: u64,
+    pub low_space: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct SystemOverview {
+    pub computer_name: String,
+    pub os_product_name: String,
+    pub os_display_version: String,
+    pub os_build: u32,
+    pub os_architecture: String,
+    pub is_admin: bool,
+    pub cpu_name: String,
+    pub logical_cores: u32,
+    pub total_memory_bytes: u64,
+    pub available_memory_bytes: u64,
+    pub gpu_adapters: Vec<String>,
+    pub volumes: Vec<SystemVolume>,
+    pub uptime_seconds: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum InstalledAppSource {
+    Registry,
+    Appx,
+    Winget,
+    Choco,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
+pub struct InstalledApp {
+    pub id: String,
+    pub display_name: String,
+    pub display_version: Option<String>,
+    pub publisher: Option<String>,
+    pub install_location: Option<String>,
+    pub install_date: Option<String>,
+    pub source: InstalledAppSource,
+    pub package_id: Option<String>,
+    pub is_system_component: bool,
+    pub update_available: bool,
+    pub available_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Type)]
+#[serde(deny_unknown_fields)]
 pub struct SystemAudit {
     pub environment: EnvironmentCheck,
+    pub system_info: SystemOverview,
     pub pending_restart: bool,
     pub pending_restart_reasons: Vec<String>,
     pub tweak_statuses: Vec<TweakStatus>,
     pub recovery_session_count: u32,
+    pub installed_apps_count: u32,
     pub appx_package_count: u32,
+    pub driver_updates_count: u32,
+    pub driver_search_error: Option<String>,
     pub package_providers: Vec<AppProviderStatus>,
 }
